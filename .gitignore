@@ -1,0 +1,7 @@
+.next
+node_modules
+.DS_Store
+data/mock-db.json
+data/mock-session.json
+*.log
+.env.local

@@ -1,0 +1,34 @@
+{
+  "name": "receipt-capture",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "migrate:firestore": "node --env-file=.env.local scripts/migrate-mock-db-to-firestore.mjs",
+    "backfill:legacy-schema": "node --env-file=.env.local scripts/backfill-legacy-receipt-schema.mjs",
+    "backfill:legacy-schema:write": "node --env-file=.env.local scripts/backfill-legacy-receipt-schema.mjs --write",
+    "repair:item-measures": "node --env-file=.env.local scripts/repair-item-measures.mjs",
+    "repair:item-measures:write": "node --env-file=.env.local scripts/repair-item-measures.mjs --write",
+    "repair:item-measures:llm": "node --env-file=.env.local scripts/repair-item-measures.mjs --use-llm",
+    "repair:item-measures:llm:write": "node --env-file=.env.local scripts/repair-item-measures.mjs --use-llm --write",
+    "backfill:item-metadata": "node --env-file=.env.local scripts/backfill-item-type-category.mjs",
+    "backfill:item-taxonomy": "node --env-file=.env.local scripts/backfill-item-type-category.mjs"
+  },
+  "dependencies": {
+    "firebase": "^12.12.0",
+    "firebase-admin": "^13.7.0",
+    "next": "^16.2.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.10",
+    "@types/react": "19.0.10",
+    "@types/react-dom": "19.0.4",
+    "typescript": "5.8.2"
+  }
+}
