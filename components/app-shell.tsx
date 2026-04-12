@@ -17,6 +17,7 @@ import {
 import { BottomTabBar, type TabKey } from "@/components/bottom-tab-bar";
 import { StatsTimeSeriesChart } from "@/components/stats-time-series-chart";
 import { getFirebaseClientAuth } from "@/lib/firebase-client";
+import { isHeicLikeUpload } from "@/lib/image-format";
 import type {
   ItemMappingRecord,
   MappingInput,
@@ -71,6 +72,185 @@ function shiftIsoDate(daysBack: number): string {
   const date = new Date();
   date.setDate(date.getDate() - daysBack);
   return date.toISOString().slice(0, 10);
+}
+
+function replaceFileExtension(fileName: string, nextExtension: string): string {
+  return /\.[^.]+$/.test(fileName) ? fileName.replace(/\.[^.]+$/, nextExtension) : `${fileName}${nextExtension}`;
+}
+
+async function readFileSignature(file: File): Promise<Uint8Array> {
+  return new Uint8Array(await file.slice(0, 64).arrayBuffer());
+}
+
+function readFileAsDataUrl(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onerror = () => {
+      reject(new Error("Unable to read the selected image."));
+    };
+
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error("Unable to read the selected image."));
+        return;
+      }
+
+      resolve(reader.result);
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+function getUploadErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  if (typeof error === "object" && error && "message" in error && typeof error.message === "string" && error.message.trim()) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+
+  return "Parse failed.";
+}
+
+async function normalizeUploadImage(file: File): Promise<{ file: File; wasConverted: boolean; fallbackToServer: boolean }> {
+  const signature = await readFileSignature(file);
+  const shouldNormalize = isHeicLikeUpload({
+    fileName: file.name,
+    mimeType: file.type,
+    bytes: signature
+  });
+
+  if (!shouldNormalize) {
+    return { file, wasConverted: false, fallbackToServer: false };
+  }
+
+  try {
+    return {
+      file: await convertHeicWithBrowserDecoder(file),
+      wasConverted: true,
+      fallbackToServer: false
+    };
+  } catch (nativeError) {
+    try {
+      return {
+        file: await convertHeicWithLibrary(file),
+        wasConverted: true,
+        fallbackToServer: false
+      };
+    } catch (libraryError) {
+      console.warn("Client-side HEIC conversion failed; falling back to server normalization.", {
+        nativeError,
+        libraryError
+      });
+      return {
+        file,
+        wasConverted: false,
+        fallbackToServer: true
+      };
+    }
+  }
+}
+
+function blobToJpegFile(blob: Blob, originalFileName: string): File {
+  return new File([blob], replaceFileExtension(originalFileName, ".jpg"), {
+    type: "image/jpeg",
+    lastModified: Date.now()
+  });
+}
+
+function drawImageToJpeg(image: CanvasImageSource, width: number, height: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      reject(new Error("Canvas is unavailable for image conversion."));
+      return;
+    }
+
+    context.drawImage(image, 0, 0, width, height);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("Canvas could not export the converted image."));
+          return;
+        }
+
+        resolve(blob);
+      },
+      "image/jpeg",
+      0.92
+    );
+  });
+}
+
+function loadImageElement(blobUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("The browser could not decode this HEIC image."));
+    image.src = blobUrl;
+  });
+}
+
+async function convertHeicWithBrowserDecoder(file: File): Promise<File> {
+  const blobUrl = URL.createObjectURL(file);
+
+  try {
+    if ("createImageBitmap" in window) {
+      try {
+        const bitmap = await createImageBitmap(file);
+
+        try {
+          const jpegBlob = await drawImageToJpeg(bitmap, bitmap.width, bitmap.height);
+          return blobToJpegFile(jpegBlob, file.name);
+        } finally {
+          bitmap.close();
+        }
+      } catch {
+        // Fall through to the HTMLImageElement path below.
+      }
+    }
+
+    const image = await loadImageElement(blobUrl);
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+
+    if (!width || !height) {
+      throw new Error("The browser decoded the image but reported invalid dimensions.");
+    }
+
+    const jpegBlob = await drawImageToJpeg(image, width, height);
+    return blobToJpegFile(jpegBlob, file.name);
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
+async function convertHeicWithLibrary(file: File): Promise<File> {
+  const { default: heic2any } = await import("heic2any");
+  const result = await heic2any({
+    blob: file,
+    toType: "image/jpeg",
+    quality: 0.92
+  });
+  const convertedBlob = Array.isArray(result) ? result[0] : result;
+
+  if (!(convertedBlob instanceof Blob)) {
+    throw new Error("HEIC conversion produced an invalid image.");
+  }
+
+  return blobToJpegFile(convertedBlob, file.name);
 }
 
 function formatStatsValue(metric: StatsMetric, value: number): string {
@@ -365,6 +545,8 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   const [isPending, startTransition] = useTransition();
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const statsSubjectMenuRef = useRef<HTMLDivElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const libraryInputRef = useRef<HTMLInputElement | null>(null);
 
   async function loadSession(): Promise<void> {
     const response = await fetch("/api/auth/session");
@@ -567,38 +749,72 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
-    const file = event.target.files?.[0];
-    if (!file) {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) {
       return;
     }
 
-    setSelectedFileName(file.name);
-    setStatus("Parsing receipt...");
     setError(null);
+    setSelectedFileName(selectedFile.name);
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const response = await fetch("/api/parse-receipt", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image_data_url: reader.result, upload_date: isoDateToday() })
-        });
-        const data = (await response.json()) as ParsedReceipt & { error?: string };
-        if (!response.ok) {
-          setError(data.error ?? "Parse failed.");
-          return;
-        }
+    try {
+      setStatus("Preparing image...");
 
-        const normalizedItems = data.items.map((item) => ({ ...item }));
-        setReceipt({ ...data, items: normalizedItems });
-        setLlmItems(normalizedItems.map((item) => ({ ...item })));
-        setStatus("Receipt parsed. Review rows before saving.");
-      } catch (parseError) {
-        setError(parseError instanceof Error ? parseError.message : "Parse failed.");
+      const { file, wasConverted, fallbackToServer } = await normalizeUploadImage(selectedFile);
+      const imageDataUrl = await readFileAsDataUrl(file);
+      setSelectedFileName(file.name);
+      if (wasConverted) {
+        setStatus("HEIC converted. Parsing receipt...");
+      } else if (fallbackToServer) {
+        setStatus("Uploading HEIC image for server conversion...");
+      } else {
+        setStatus("Parsing receipt...");
       }
-    };
-    reader.readAsDataURL(file);
+
+      const response = await fetch("/api/parse-receipt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_data_url: imageDataUrl, upload_date: isoDateToday() })
+      });
+      const data = (await response.json()) as ParsedReceipt & { error?: string };
+      if (!response.ok) {
+        setError(data.error ?? "Parse failed.");
+        setStatus(null);
+        return;
+      }
+
+      const normalizedItems = data.items.map((item) => ({ ...item }));
+      setReceipt({ ...data, items: normalizedItems });
+      setLlmItems(normalizedItems.map((item) => ({ ...item })));
+      if (wasConverted) {
+        setStatus("HEIC converted and parsed. Review rows before saving.");
+      } else if (fallbackToServer) {
+        setStatus("HEIC uploaded and converted on the server. Review rows before saving.");
+      } else {
+        setStatus("Receipt parsed. Review rows before saving.");
+      }
+    } catch (parseError) {
+      setError(getUploadErrorMessage(parseError));
+      setStatus(null);
+    }
+  }
+
+  function openCameraPicker(): void {
+    if (!cameraInputRef.current) {
+      return;
+    }
+
+    cameraInputRef.current.value = "";
+    cameraInputRef.current.click();
+  }
+
+  function openLibraryPicker(): void {
+    if (!libraryInputRef.current) {
+      return;
+    }
+
+    libraryInputRef.current.value = "";
+    libraryInputRef.current.click();
   }
 
   function updateReceiptField(field: "store_name" | "purchase_date" | "receipt_total" | "receipt_tax", value: string): void {
@@ -962,10 +1178,23 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                       <div className="upload-box">
                         <strong>Upload or photograph a grocery receipt</strong>
                         <div className="muted">The image is sent for parsing and is not persisted after inference.</div>
-                        <label className="upload-button">
-                          Choose receipt image
-                          <input hidden type="file" accept="image/*" capture="environment" onChange={(event) => void handleFileChange(event)} />
-                        </label>
+                        <div className="grid-2">
+                          <button className="upload-button" onClick={openCameraPicker} type="button">
+                            Take Photo
+                          </button>
+                          <button className="button" onClick={openLibraryPicker} type="button">
+                            Upload Photo
+                          </button>
+                        </div>
+                        <input
+                          hidden
+                          ref={cameraInputRef}
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={(event) => void handleFileChange(event)}
+                        />
+                        <input hidden ref={libraryInputRef} type="file" accept="image/*" onChange={(event) => void handleFileChange(event)} />
                         {selectedFileName ? <div className="muted">Selected: {selectedFileName}</div> : null}
                       </div>
                       {error ? <div className="error">{error}</div> : null}
