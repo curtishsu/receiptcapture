@@ -36,13 +36,6 @@ export async function signInWithFirebaseIdToken(idToken: string): Promise<{ emai
     throw new Error("Firebase account does not have an email address.");
   }
 
-  const adminUser = decodedToken.email_verified ? null : await adminAuth.getUser(decodedToken.uid);
-  const isEmailVerified = decodedToken.email_verified || Boolean(adminUser?.emailVerified);
-
-  if (!isEmailVerified) {
-    throw new Error("This account email must be verified before sign-in.");
-  }
-
   if (email !== ALLOWED_EMAIL) {
     throw new Error("This app only allows the approved account to sign in.");
   }

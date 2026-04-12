@@ -20,11 +20,13 @@ html {
   background:
     radial-gradient(circle at top left, rgba(15, 118, 110, 0.18), transparent 38%),
     linear-gradient(180deg, #f7f1e6 0%, #f2e7d7 100%);
+  min-height: 100%;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   color: var(--text);
 }
@@ -42,7 +44,8 @@ a {
 
 .page-shell {
   min-height: 100vh;
-  padding: 24px 16px 120px;
+  min-height: 100dvh;
+  padding: max(24px, env(safe-area-inset-top)) 16px calc(120px + env(safe-area-inset-bottom));
 }
 
 .app-frame {
@@ -859,7 +862,7 @@ textarea.field:focus {
 .tab-bar {
   position: fixed;
   left: 50%;
-  bottom: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   width: min(calc(100% - 32px), 720px);
   display: grid;
