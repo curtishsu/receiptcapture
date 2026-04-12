@@ -515,7 +515,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
       const auth = getFirebaseClientAuth();
       const email = authEmail.trim();
       const credential = await signInWithEmailAndPassword(auth, email, authPassword);
-      const idToken = await credential.user.getIdToken();
+      const idToken = await credential.user.getIdToken(true);
 
       const response = await fetch("/api/auth/sign-in", {
         method: "POST",
