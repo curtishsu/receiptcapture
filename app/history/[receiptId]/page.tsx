@@ -14,9 +14,11 @@ export default async function ReceiptDetailPage({
   if (!user) {
     return (
       <main className="page-shell">
-        <div className="app-card">
-          <div className="content">
-            <div className="empty-state">Sign in on the home page to view receipt details.</div>
+        <div className="app-frame">
+          <div className="app-card">
+            <div className="content">
+              <div className="empty-state">Sign in on the home page to view receipt details.</div>
+            </div>
           </div>
         </div>
       </main>
@@ -27,9 +29,11 @@ export default async function ReceiptDetailPage({
   if (!detail) {
     return (
       <main className="page-shell">
-        <div className="app-card">
-          <div className="content stack">
-            <div className="empty-state">Receipt not found.</div>
+        <div className="app-frame">
+          <div className="app-card">
+            <div className="content stack">
+              <div className="empty-state">Receipt not found.</div>
+            </div>
           </div>
         </div>
       </main>

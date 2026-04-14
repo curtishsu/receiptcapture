@@ -450,262 +450,262 @@ export function ReceiptDetailEditor({
           <option key={unit} value={unit} />
         ))}
       </datalist>
-      <div className="app-card">
-        <header className="hero">
-          <div className="stack">
-            <Link href="/?tab=history">Back</Link>
-            <div className="history-header">
-              <div>
-                {isEditing ? (
-                  <>
-                    <h1>Edit receipt</h1>
-                    <p className="muted">Receipt ID: {receipt.receipt_id}</p>
-                  </>
-                ) : (
-                  <h1>{receipt.store_name}</h1>
-                )}
+      <div className="app-frame">
+        <div className="app-card">
+          <header className="hero">
+            <div className="stack">
+              <Link href="/?tab=history">Back</Link>
+              <div className="history-header">
+                <div>
+                  {isEditing ? (
+                    <>
+                      <h1>Edit receipt</h1>
+                      <p className="muted">Receipt ID: {receipt.receipt_id}</p>
+                    </>
+                  ) : (
+                    <h1>{receipt.store_name}</h1>
+                  )}
+                  {!isEditing ? (
+                    <p>
+                      {receipt.purchase_date || "No date"} • {formatCurrency(savedAdjustedTotal)}
+                      {formatTaxSuffix(receipt.receipt_tax)} • {receipt.item_count} items
+                      {savedExcludedTotal > 0 ? ` • excl. ${formatCurrency(savedExcludedTotal, "$0.00")}` : ""}
+                    </p>
+                  ) : null}
+                </div>
                 {!isEditing ? (
-                  <p>
-                    {receipt.purchase_date || "No date"} • {formatCurrency(savedAdjustedTotal)}
-                    {formatTaxSuffix(receipt.receipt_tax)} • {receipt.item_count} items
-                    {savedExcludedTotal > 0 ? ` • excl. ${formatCurrency(savedExcludedTotal, "$0.00")}` : ""}
-                  </p>
+                  <div className="action-icons">
+                    <button
+                      aria-label="Edit receipt"
+                      className="icon-button"
+                      onClick={startEditing}
+                      title="Edit receipt"
+                      type="button"
+                    >
+                      <span aria-hidden="true">✎</span>
+                    </button>
+                    <button
+                      aria-label="Delete receipt"
+                      className="icon-button danger"
+                      disabled={isDeleting}
+                      onClick={() => void handleDelete()}
+                      title="Delete receipt"
+                      type="button"
+                    >
+                      <span aria-hidden="true">x</span>
+                    </button>
+                  </div>
                 ) : null}
               </div>
-              {!isEditing ? (
-                <div className="action-icons">
-                  <button
-                    aria-label="Edit receipt"
-                    className="icon-button"
-                    onClick={startEditing}
-                    title="Edit receipt"
-                    type="button"
-                  >
-                    <span aria-hidden="true">✎</span>
-                  </button>
-                  <button
-                    aria-label="Delete receipt"
-                    className="icon-button danger"
-                    disabled={isDeleting}
-                    onClick={() => void handleDelete()}
-                    title="Delete receipt"
-                    type="button"
-                  >
-                    <span aria-hidden="true">x</span>
-                  </button>
+            </div>
+          </header>
+          <div className="content stack">
+            {isEditing ? (
+              <section className="panel">
+                <div className="receipt-edit-grid">
+                  <label className="label">
+                    Store
+                    <input
+                      className="field"
+                      value={draftReceipt.store_name}
+                      onChange={(event) => updateDraftReceipt("store_name", event.target.value)}
+                    />
+                  </label>
+                  <label className="label">
+                    Date
+                    <input
+                      className="field"
+                      type="date"
+                      value={draftReceipt.purchase_date}
+                      onChange={(event) => updateDraftReceipt("purchase_date", event.target.value)}
+                    />
+                  </label>
+                  <label className="label">
+                    Total
+                    <input
+                      className="field"
+                      type="number"
+                      step="0.01"
+                      value={draftReceipt.receipt_total ?? ""}
+                      onChange={(event) => updateDraftReceipt("receipt_total", event.target.value)}
+                      placeholder="Receipt total"
+                    />
+                  </label>
+                  <label className="label">
+                    Tax
+                    <input
+                      className="field"
+                      type="number"
+                      step="0.01"
+                      value={draftReceipt.receipt_tax ?? ""}
+                      onChange={(event) => updateDraftReceipt("receipt_tax", event.target.value)}
+                      placeholder="Tax"
+                    />
+                  </label>
                 </div>
-              ) : null}
-            </div>
-          </div>
-        </header>
-        <div className="content stack">
-          {isEditing ? (
-            <section className="panel">
-              <div className="receipt-edit-grid">
-                <label className="label">
-                  Store
-                  <input
-                    className="field"
-                    value={draftReceipt.store_name}
-                    onChange={(event) => updateDraftReceipt("store_name", event.target.value)}
-                  />
-                </label>
-                <label className="label">
-                  Date
-                  <input
-                    className="field"
-                    type="date"
-                    value={draftReceipt.purchase_date}
-                    onChange={(event) => updateDraftReceipt("purchase_date", event.target.value)}
-                  />
-                </label>
-                <label className="label">
-                  Total
-                  <input
-                    className="field"
-                    type="number"
-                    step="0.01"
-                    value={draftReceipt.receipt_total ?? ""}
-                    onChange={(event) => updateDraftReceipt("receipt_total", event.target.value)}
-                    placeholder="Receipt total"
-                  />
-                </label>
-                <label className="label">
-                  Tax
-                  <input
-                    className="field"
-                    type="number"
-                    step="0.01"
-                    value={draftReceipt.receipt_tax ?? ""}
-                    onChange={(event) => updateDraftReceipt("receipt_tax", event.target.value)}
-                    placeholder="Tax"
-                  />
-                </label>
-              </div>
-              <div className="receipt-summary muted">
-                {draftReceipt.purchase_date || "No date"} • {formatCurrency(draftAdjustedTotal)}
-                {formatTaxSuffix(draftReceipt.receipt_tax)}
-                {draftExcludedTotal > 0 ? ` • excl. ${formatCurrency(draftExcludedTotal, "$0.00")}` : ""}
-              </div>
-            </section>
-          ) : null}
+                <div className="receipt-summary muted">
+                  {draftReceipt.purchase_date || "No date"} • {formatCurrency(draftAdjustedTotal)}
+                  {formatTaxSuffix(draftReceipt.receipt_tax)}
+                  {draftExcludedTotal > 0 ? ` • excl. ${formatCurrency(draftExcludedTotal, "$0.00")}` : ""}
+                </div>
+              </section>
+            ) : null}
 
-          {!isEditing && status ? <div className="pill">{status}</div> : null}
-          {error && !isEditing ? <div className="error">{error}</div> : null}
+            {!isEditing && status ? <div className="pill">{status}</div> : null}
+            {error && !isEditing ? <div className="error">{error}</div> : null}
 
-          <section className="panel stack">
-            <div className="row spread">
-              <h2 className="section-title">Saved items</h2>
-              {isEditing ? (
-                <button className="button ghost" onClick={addRow} type="button">
-                  Add row
-                </button>
-              ) : null}
-            </div>
-            <div className="item-table-shell">
-              <div className="table item-table">
-              <div className="table-head table-head-item-editor">
-                <span>Item Name</span>
-                <span>Amount</span>
-                <span>Unit</span>
-                <span>Quantity</span>
-                <span>Price</span>
-                {isEditing ? <span className="table-head-spacer" aria-hidden="true" /> : null}
+            <section className="panel stack">
+              <div className="row spread">
+                <h2 className="section-title">Saved items</h2>
               </div>
-              {isEditing
-                ? draftItems.map((item, index) => (
-                    <div className="table-row table-row-item-editor" key={`${item.receipt_item_name}-${index}`}>
-                      <div className="stack compact">
-                        <input
-                          className="field"
-                          value={item.item_name}
-                          onChange={(event) => updateDraftItemField(index, "item_name", event.target.value)}
-                          placeholder="Item name"
-                        />
-                        <input
-                          className="field"
-                          value={item.receipt_item_name}
-                          onChange={(event) => updateDraftItemField(index, "receipt_item_name", event.target.value)}
-                          placeholder="Receipt item name"
-                        />
-                      </div>
-                      <input
-                        className="field"
-                        type="number"
-                        step="0.25"
-                        value={item.amount ?? ""}
-                        disabled={isPerPoundItem(item)}
-                        onChange={(event) => updateDraftItemField(index, "amount", event.target.value)}
-                        placeholder="Amount"
-                      />
-                      <div className="stack compact">
-                        <div className={`unit-input-row ${isPerPoundItem(item) ? "per-pound" : ""}`}>
-                          {isPerPoundItem(item) ? (
+              <div className="item-table-shell">
+                <div className="table item-table">
+                  <div className="table-head table-head-item-editor">
+                    <span>Item Name</span>
+                    <span>Amount</span>
+                    <span>Unit</span>
+                    <span>Quantity</span>
+                    <span>Price</span>
+                    {isEditing ? <span className="table-head-spacer" aria-hidden="true" /> : null}
+                  </div>
+                  {isEditing
+                    ? draftItems.map((item, index) => (
+                        <div className="table-row table-row-item-editor" key={`${item.receipt_item_name}-${index}`}>
+                          <div className="stack compact">
                             <input
                               className="field"
-                              type="number"
-                              step="0.01"
-                              value={item.price_per_unit ?? ""}
-                              onChange={(event) => updateDraftItemField(index, "price_per_unit", event.target.value)}
-                              placeholder="Price/lb"
+                              value={item.item_name}
+                              onChange={(event) => updateDraftItemField(index, "item_name", event.target.value)}
+                              placeholder="Item name"
                             />
-                          ) : null}
-                          <select
-                            className="field select-field"
-                            value={getUnitSelectValue(item, knownUnits)}
-                            onChange={(event) => updateDraftItemUnitSelection(index, event.target.value)}
-                          >
-                            <option value={EMPTY_UNIT_OPTION}>Unit</option>
-                            <optgroup label="Unit">
-                              {getRegularUnitOptions(knownUnits, item.unit).map((unit) => (
-                                <option key={unit} value={unit}>
-                                  {unit}
-                                </option>
-                              ))}
-                            </optgroup>
-                            <optgroup label="Per unit">
-                              <option value={PER_POUND_OPTION}>/ lb</option>
-                            </optgroup>
-                            <option value={CUSTOM_UNIT_OPTION}>Custom</option>
-                          </select>
-                        </div>
-                        {showsCustomUnitInput(item, knownUnits) ? (
+                            <input
+                              className="field"
+                              value={item.receipt_item_name}
+                              onChange={(event) => updateDraftItemField(index, "receipt_item_name", event.target.value)}
+                              placeholder="Receipt item name"
+                            />
+                          </div>
                           <input
                             className="field"
-                            value={item.unit ?? ""}
-                            onChange={(event) => updateDraftItemField(index, "unit", event.target.value)}
-                            placeholder="Custom unit"
+                            type="number"
+                            step="0.25"
+                            value={item.amount ?? ""}
+                            disabled={isPerPoundItem(item)}
+                            onChange={(event) => updateDraftItemField(index, "amount", event.target.value)}
+                            placeholder="Amount"
                           />
-                        ) : null}
-                      </div>
-                      <input
-                        className="field"
-                        type="number"
-                        step="0.01"
-                        value={item.quantity ?? ""}
-                        disabled={isPerPoundItem(item)}
-                        onChange={(event) => updateDraftItemField(index, "quantity", event.target.value)}
-                        placeholder="Qty"
-                      />
-                      <input
-                        className="field"
-                        type="number"
-                        step="0.01"
-                        value={item.price ?? ""}
-                        onChange={(event) => updateDraftItemField(index, "price", event.target.value)}
-                        placeholder="Price"
-                      />
-                      <button
-                        className="icon-button small danger"
-                        onClick={() => handleRowDelete(index)}
-                        type="button"
-                        aria-label={item.is_excluded ? "Restore row" : "Delete row"}
-                        title={item.is_excluded ? "Restore row" : "Delete row"}
-                      >
-                        <span aria-hidden="true">x</span>
-                      </button>
-                    </div>
-                  ))
-                : items.map((item) => (
-                    <div className="table-row table-row-item-saved" key={item.id}>
-                      <div className="item-name-cell">
-                        <div className="row gap-sm">
-                          <strong>{displayTextValue(item.item_name)}</strong>
-                          {item.has_mapping_mismatch ? (
-                            <button className="link-button" onClick={() => setSuggestionItem(item)} type="button" title="Review suggested metadata">
-                              *
-                            </button>
-                          ) : null}
-                          {item.is_excluded ? <span className="pill">Excluded</span> : null}
+                          <div className="stack compact">
+                            <div className={`unit-input-row ${isPerPoundItem(item) ? "per-pound" : ""}`}>
+                              {isPerPoundItem(item) ? (
+                                <input
+                                  className="field"
+                                  type="number"
+                                  step="0.01"
+                                  value={item.price_per_unit ?? ""}
+                                  onChange={(event) => updateDraftItemField(index, "price_per_unit", event.target.value)}
+                                  placeholder="Price/lb"
+                                />
+                              ) : null}
+                              <select
+                                className="field select-field"
+                                value={getUnitSelectValue(item, knownUnits)}
+                                onChange={(event) => updateDraftItemUnitSelection(index, event.target.value)}
+                              >
+                                <option value={EMPTY_UNIT_OPTION}>Unit</option>
+                                <optgroup label="Unit">
+                                  {getRegularUnitOptions(knownUnits, item.unit).map((unit) => (
+                                    <option key={unit} value={unit}>
+                                      {unit}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                                <optgroup label="Per unit">
+                                  <option value={PER_POUND_OPTION}>/ lb</option>
+                                </optgroup>
+                                <option value={CUSTOM_UNIT_OPTION}>Custom</option>
+                              </select>
+                            </div>
+                            {showsCustomUnitInput(item, knownUnits) ? (
+                              <input
+                                className="field"
+                                value={item.unit ?? ""}
+                                onChange={(event) => updateDraftItemField(index, "unit", event.target.value)}
+                                placeholder="Custom unit"
+                              />
+                            ) : null}
+                          </div>
+                          <input
+                            className="field"
+                            type="number"
+                            step="0.01"
+                            value={item.quantity ?? ""}
+                            disabled={isPerPoundItem(item)}
+                            onChange={(event) => updateDraftItemField(index, "quantity", event.target.value)}
+                            placeholder="Qty"
+                          />
+                          <input
+                            className="field"
+                            type="number"
+                            step="0.01"
+                            value={item.price ?? ""}
+                            onChange={(event) => updateDraftItemField(index, "price", event.target.value)}
+                            placeholder="Price"
+                          />
+                          <button
+                            className="icon-button small danger"
+                            onClick={() => handleRowDelete(index)}
+                            type="button"
+                            aria-label={item.is_excluded ? "Restore row" : "Delete row"}
+                            title={item.is_excluded ? "Restore row" : "Delete row"}
+                          >
+                            <span aria-hidden="true">x</span>
+                          </button>
                         </div>
-                        <span className="item-name-secondary">({displayTextValue(item.receipt_item_name)})</span>
-                      </div>
-                      <span>{displayNumberValue(item.amount)}</span>
-                      <span>{displayTextValue(item.unit)}</span>
-                      <span>{displayNumberValue(item.quantity)}</span>
-                      <span>{formatCurrency(item.price, "-")}</span>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          </section>
-          {isEditing ? (
-            <section className="panel">
-              {status ? <div className="pill">{status}</div> : null}
-              {error ? <div className="error">{error}</div> : null}
-              <div className="row receipt-edit-actions">
-                <button className="button ghost" onClick={cancelEditing} type="button">
-                  Cancel
-                </button>
-                <button className="button primary" onClick={() => void handleSave()} type="button">
-                  Save changes
-                </button>
+                      ))
+                    : items.map((item) => (
+                        <div className="table-row table-row-item-saved" key={item.id}>
+                          <div className="item-name-cell">
+                            <div className="row gap-sm">
+                              <strong>{displayTextValue(item.item_name)}</strong>
+                              {item.has_mapping_mismatch ? (
+                                <button className="link-button" onClick={() => setSuggestionItem(item)} type="button" title="Review suggested metadata">
+                                  *
+                                </button>
+                              ) : null}
+                              {item.is_excluded ? <span className="pill">Excluded</span> : null}
+                            </div>
+                            <span className="item-name-secondary">({displayTextValue(item.receipt_item_name)})</span>
+                          </div>
+                          <span>{displayNumberValue(item.amount)}</span>
+                          <span>{displayTextValue(item.unit)}</span>
+                          <span>{displayNumberValue(item.quantity)}</span>
+                          <span>{formatCurrency(item.price, "-")}</span>
+                        </div>
+                      ))}
+                </div>
               </div>
             </section>
-          ) : null}
+            {isEditing ? (
+              <section className="panel">
+                {status ? <div className="pill">{status}</div> : null}
+                {error ? <div className="error">{error}</div> : null}
+                <div className="row receipt-edit-actions">
+                  <button className="button ghost" onClick={addRow} type="button">
+                    Add row
+                  </button>
+                  <button className="button ghost" onClick={cancelEditing} type="button">
+                    Cancel
+                  </button>
+                  <button className="button primary" onClick={() => void handleSave()} type="button">
+                    Save changes
+                  </button>
+                </div>
+              </section>
+            ) : null}
+          </div>
         </div>
+        <BottomTabBar activeTab="history" />
       </div>
-      <BottomTabBar activeTab="history" />
 
       {suggestionItem ? (
         <div className="modal-backdrop" role="presentation">

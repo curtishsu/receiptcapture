@@ -4,7 +4,7 @@ import { getStats } from "@/lib/firestore-db";
 import type { StatsDateBucket, StatsMetric, StatsSubjectKind } from "@/lib/types";
 
 function getMetric(value: string | null): StatsMetric {
-  return value === "dollars" || value === "total_amount" ? value : "quantity";
+  return value === "quantity" || value === "dollars" || value === "total_amount" ? value : "dollars";
 }
 
 function getDateBucket(value: string | null): StatsDateBucket {

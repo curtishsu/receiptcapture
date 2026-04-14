@@ -180,6 +180,15 @@ export type StatsSeriesPoint = {
   bucket_key: string;
   bucket_label: string;
   value: number;
+  tooltip_rows: StatsTooltipRow[];
+  has_multiple_units: boolean;
+};
+
+export type StatsTooltipRow = {
+  item_name: string;
+  total_amount_display: string;
+  dollars: number;
+  has_multiple_units: boolean;
 };
 
 export type StatsTopItemRow = {
@@ -187,6 +196,8 @@ export type StatsTopItemRow = {
   quantity: number;
   dollars: number;
   total_amount: number;
+  total_amount_display: string;
+  has_multiple_units: boolean;
 };
 
 export type StatsDeepDive = {

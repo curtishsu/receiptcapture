@@ -55,7 +55,7 @@ const EMPTY_STATS: StatsResponse = {
   },
   deep_dive: {
     selected_subject: null,
-    metric: "quantity",
+    metric: "dollars",
     date_bucket: "month",
     series: [],
     series_unit_label: null,
@@ -274,6 +274,14 @@ function getStatsDisplayValue(
   }
 
   return item.quantity;
+}
+
+function getStatsDisplayLabel(metric: StatsMetric, item: StatsResponse["deep_dive"]["top_items"][number]): string {
+  if (metric === "total_amount") {
+    return item.total_amount_display;
+  }
+
+  return formatStatsValue(metric, getStatsDisplayValue(metric, item));
 }
 
 function getStatsSubjectKindLabel(kind: StatsSubjectKind): string {
@@ -530,7 +538,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   const [isMappingEditing, setIsMappingEditing] = useState(false);
   const [mappingSaveMessage, setMappingSaveMessage] = useState<string | null>(null);
   const [knownUnits, setKnownUnits] = useState<string[]>([]);
-  const [statsMetric, setStatsMetric] = useState<StatsMetric>("quantity");
+  const [statsMetric, setStatsMetric] = useState<StatsMetric>("dollars");
   const [statsSubjectKind, setStatsSubjectKind] = useState<StatsSubjectKind | null>(null);
   const [statsSubjectValue, setStatsSubjectValue] = useState("");
   const [statsSubjectSearch, setStatsSubjectSearch] = useState("");
@@ -737,7 +745,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
     setDeletedMappingIds([]);
     setStats(EMPTY_STATS);
     setKnownUnits([]);
-    setStatsMetric("quantity");
+    setStatsMetric("dollars");
     setStatsSubjectKind(null);
     setStatsSubjectValue("");
     setStatsSubjectSearch("");
@@ -1473,7 +1481,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                           <label className="stats-inline-select">
                             <select className="field stats-metric-select" value={statsMetric} onChange={(event) => setStatsMetric(event.target.value as StatsMetric)}>
                               <option value="quantity">Quantity</option>
-                              <option value="dollars">Dollar</option>
+                              <option value="dollars">Dollars</option>
                               <option value="total_amount">Total Amount</option>
                             </select>
                           </label>
@@ -1517,7 +1525,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                         statsTopItems.map((item) => (
                           <div className="row spread" key={item.item_name}>
                             <span>{item.item_name}</span>
-                            <span className="pill">{formatStatsValue(statsMetric, getStatsDisplayValue(statsMetric, item))}</span>
+                            <span className="pill">{getStatsDisplayLabel(statsMetric, item)}</span>
                           </div>
                         ))
                       ) : (

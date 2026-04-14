@@ -615,7 +615,10 @@ type RankedItem = {
   quantity: number;
   dollars: number;
   total_amount: number;
+  unit_totals: Map<string, number>;
 };
+
+type BucketTooltipRow = StatsResponse["deep_dive"]["series"][number]["tooltip_rows"][number];
 
 const MULTI_UNIT_TOOLTIP = "Current filtering contains multiple units";
 
@@ -793,6 +796,75 @@ function getMetricValue(metric: StatsMetric, contribution: MetricContribution): 
   return contribution.quantity;
 }
 
+function formatAmountNumber(value: number): string {
+  if (Number.isInteger(value)) {
+    return value.toString();
+  }
+
+  return value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function buildTotalAmountDisplay(unitTotals: Map<string, number>): { text: string; hasMultipleUnits: boolean } {
+  const segments = [...unitTotals.entries()]
+    .filter(([, total]) => Number.isFinite(total))
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([unit, total]) => `${formatAmountNumber(Number(total.toFixed(2)))}${unit}`);
+
+  return {
+    text: segments.join(" + "),
+    hasMultipleUnits: segments.length > 1
+  };
+}
+
+function addRankedItemContribution(
+  totals: Map<string, RankedItem>,
+  item: ReceiptItemRecord,
+  contribution: MetricContribution
+): void {
+  const key = item.item_name_normalized;
+  const preferredItemName = item.item_name?.trim() || item.receipt_item_name;
+  const current = totals.get(key) ?? {
+    item_name: preferredItemName,
+    quantity: 0,
+    dollars: 0,
+    total_amount: 0,
+    unit_totals: new Map<string, number>()
+  };
+
+  if (!current.item_name && preferredItemName) {
+    current.item_name = preferredItemName;
+  }
+
+  current.quantity += contribution.quantity;
+  current.dollars += contribution.dollars;
+  current.total_amount += contribution.totalAmount;
+  current.unit_totals.set(
+    contribution.totalAmountUnit,
+    (current.unit_totals.get(contribution.totalAmountUnit) ?? 0) + contribution.totalAmount
+  );
+  totals.set(key, current);
+}
+
+function buildTooltipRows(items: ReceiptItemRecord[]): BucketTooltipRow[] {
+  const totals = new Map<string, RankedItem>();
+
+  items.forEach((item) => {
+    addRankedItemContribution(totals, item, getMetricContribution(item));
+  });
+
+  return [...totals.values()]
+    .sort((a, b) => b.dollars - a.dollars || a.item_name.localeCompare(b.item_name))
+    .map((item) => {
+      const totalAmountDisplay = buildTotalAmountDisplay(item.unit_totals);
+      return {
+        item_name: item.item_name,
+        total_amount_display: totalAmountDisplay.text,
+        dollars: Number(item.dollars.toFixed(2)),
+        has_multiple_units: totalAmountDisplay.hasMultipleUnits
+      };
+    });
+}
+
 function buildSubjectOptions(items: ReceiptItemRecord[]): StatsSubjectOption[] {
   const options: StatsSubjectOption[] = [];
   const seen = new Set<string>();
@@ -856,22 +928,7 @@ function buildTopItems(items: ReceiptItemRecord[], metric: StatsMetric): StatsRe
   const totals = new Map<string, RankedItem>();
 
   items.forEach((item) => {
-    const key = item.item_name_normalized;
-    const preferredItemName = item.item_name?.trim() || item.receipt_item_name;
-    const contribution = getMetricContribution(item);
-    const current = totals.get(key) ?? {
-      item_name: preferredItemName,
-      quantity: 0,
-      dollars: 0,
-      total_amount: 0
-    };
-    if (!current.item_name && preferredItemName) {
-      current.item_name = preferredItemName;
-    }
-    current.quantity += contribution.quantity;
-    current.dollars += contribution.dollars;
-    current.total_amount += contribution.totalAmount;
-    totals.set(key, current);
+    addRankedItemContribution(totals, item, getMetricContribution(item));
   });
 
   return [...totals.values()]
@@ -889,12 +946,17 @@ function buildTopItems(items: ReceiptItemRecord[], metric: StatsMetric): StatsRe
       return a.item_name.localeCompare(b.item_name);
     })
     .slice(0, 5)
-    .map((item) => ({
-      item_name: item.item_name,
-      quantity: Number(item.quantity.toFixed(2)),
-      dollars: Number(item.dollars.toFixed(2)),
-      total_amount: Number(item.total_amount.toFixed(2))
-    }));
+    .map((item) => {
+      const totalAmountDisplay = buildTotalAmountDisplay(item.unit_totals);
+      return {
+        item_name: item.item_name,
+        quantity: Number(item.quantity.toFixed(2)),
+        dollars: Number(item.dollars.toFixed(2)),
+        total_amount: Number(item.total_amount.toFixed(2)),
+        total_amount_display: totalAmountDisplay.text,
+        has_multiple_units: totalAmountDisplay.hasMultipleUnits
+      };
+    });
 }
 
 function buildSeries(
@@ -903,6 +965,7 @@ function buildSeries(
   dateBucket: StatsDateBucket
 ): StatsResponse["deep_dive"]["series"] {
   const totals = new Map<string, number>();
+  const bucketItems = new Map<string, ReceiptItemRecord[]>();
 
   items.forEach((item) => {
     const purchaseDateKey = parseDateParts(item.purchase_date)?.key;
@@ -913,13 +976,21 @@ function buildSeries(
     const bucketKey = getBucketKey(purchaseDateKey, dateBucket);
     const value = getMetricValue(metric, getMetricContribution(item));
     totals.set(bucketKey, (totals.get(bucketKey) ?? 0) + value);
+    const currentItems = bucketItems.get(bucketKey) ?? [];
+    currentItems.push(item);
+    bucketItems.set(bucketKey, currentItems);
   });
 
-  return expandBucketKeys([...totals.keys()], dateBucket).map((bucketKey) => ({
+  return expandBucketKeys([...totals.keys()], dateBucket).map((bucketKey) => {
+    const tooltipRows = buildTooltipRows(bucketItems.get(bucketKey) ?? []);
+    return {
       bucket_key: bucketKey,
       bucket_label: formatBucketLabel(bucketKey, dateBucket),
-      value: Number((totals.get(bucketKey) ?? 0).toFixed(2))
-    }));
+      value: Number((totals.get(bucketKey) ?? 0).toFixed(2)),
+      tooltip_rows: tooltipRows,
+      has_multiple_units: tooltipRows.some((row) => row.has_multiple_units)
+    };
+  });
 }
 
 function resolveSeriesUnit(
@@ -974,7 +1045,7 @@ function isWithinDateRange(dateKey: string, startDate: string | null, endDate: s
 }
 
 export async function getStats(userId: string, options: GetStatsOptions = {}): Promise<StatsResponse> {
-  const metric = options.metric ?? "quantity";
+  const metric = options.metric ?? "dollars";
   const dateBucket = options.dateBucket ?? "month";
   const receipts = await listReceipts(userId);
   const items = await getReceiptItemsForUser(userId);
