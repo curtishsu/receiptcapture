@@ -3,14 +3,14 @@ import type { Metadata, Viewport } from "next";
 import { PwaRegistration } from "@/components/pwa-registration";
 
 export const metadata: Metadata = {
-  applicationName: "Receipt Tracker",
-  title: "Receipt Tracker",
+  applicationName: "foodprint",
+  title: "foodprint",
   description: "Track grocery receipts, corrections, and spend trends.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Receipt Tracker"
+    title: "foodprint"
   },
   formatDetection: {
     telephone: false

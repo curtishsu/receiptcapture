@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Receipt Tracker",
-    short_name: "Receipts",
+    name: "foodprint",
+    short_name: "foodprint",
     description: "Track grocery receipts, corrections, and spend trends.",
     start_url: "/?tab=photo",
     scope: "/",

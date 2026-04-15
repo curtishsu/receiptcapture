@@ -523,6 +523,7 @@ const MAPPING_FIELD_LABELS = {
 export function AppShell({ initialSessionUser, initialTab }: AppShellProps): ReactElement {
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(initialSessionUser);
+  const [isClientReady, setIsClientReady] = useState(false);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
@@ -555,12 +556,6 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   const statsSubjectMenuRef = useRef<HTMLDivElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const libraryInputRef = useRef<HTMLInputElement | null>(null);
-
-  async function loadSession(): Promise<void> {
-    const response = await fetch("/api/auth/session");
-    const data = (await response.json()) as { user: SessionUser | null };
-    setSessionUser(data.user);
-  }
 
   async function loadHistory(): Promise<void> {
     if (!sessionUser) {
@@ -641,30 +636,48 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   }, [initialTab]);
 
   useEffect(() => {
-    startTransition(() => {
-      void loadSession();
-    });
+    setIsClientReady(true);
   }, []);
 
   useEffect(() => {
-    if (!sessionUser) {
+    if (!sessionUser || activeTab !== "photo" || knownUnits.length > 0) {
       return;
     }
 
     startTransition(() => {
-      void Promise.all([loadHistory(), loadKnownUnits(), loadMappings()]);
+      void loadKnownUnits();
     });
-  }, [sessionUser]);
+  }, [activeTab, knownUnits.length, sessionUser]);
 
   useEffect(() => {
-    if (!sessionUser) {
+    if (!sessionUser || activeTab !== "stats") {
       return;
     }
 
     startTransition(() => {
       void loadStats();
     });
-  }, [sessionUser, statsMetric, statsSubjectKind, statsSubjectValue, statsDateBucket, statsRangePreset, statsStartDate, statsEndDate]);
+  }, [activeTab, sessionUser, statsMetric, statsSubjectKind, statsSubjectValue, statsDateBucket, statsRangePreset, statsStartDate, statsEndDate]);
+
+  useEffect(() => {
+    if (!sessionUser || activeTab !== "history" || history.length > 0) {
+      return;
+    }
+
+    startTransition(() => {
+      void loadHistory();
+    });
+  }, [activeTab, history.length, sessionUser]);
+
+  useEffect(() => {
+    if (!sessionUser || activeTab !== "mapping" || mappings.length > 0) {
+      return;
+    }
+
+    startTransition(() => {
+      void loadMappings();
+    });
+  }, [activeTab, mappings.length, sessionUser]);
 
   useEffect(() => {
     if (!isProfileOpen) {
@@ -719,7 +732,10 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
         return;
       }
 
-      await loadSession();
+      setSessionUser({
+        id: credential.user.uid,
+        email
+      });
     } catch (error) {
       setAuthError(getAuthErrorMessage(error));
     } finally {
@@ -1101,14 +1117,11 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
           <option key={unit} value={unit} />
         ))}
       </datalist>
-      <div className="app-frame">
-        <div className="app-card">
+      <div className={`app-frame ${!sessionUser ? "app-frame-auth" : ""}`}>
+        <div className={`app-card ${!sessionUser ? "app-card-auth" : ""}`}>
           <header className="hero">
             <div className="hero-top">
-              <div>
-                <p className="pill">Receipt Tracker v2</p>
-                <h1>Groceries in, patterns out.</h1>
-              </div>
+              <h1 className="app-title">foodprint</h1>
               {sessionUser ? (
                 <div className="profile-menu" ref={profileMenuRef}>
                   <button
@@ -1123,7 +1136,6 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                   {isProfileOpen ? (
                     <div className="profile-popover" role="menu">
                       <strong>{sessionUser.email}</strong>
-                      <div className="muted">Receipts, mappings, and stats stay scoped to this account.</div>
                       <button className="button ghost" onClick={() => void handleSignOut()} type="button">
                         Sign out
                       </button>
@@ -1134,43 +1146,48 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
             </div>
           </header>
 
-          <div className="content stack">
+          <div className={sessionUser ? "content stack" : "content content-auth"}>
             {!sessionUser ? (
-              <section className="panel stack">
-                <div>
+              <section className="panel stack auth-panel" suppressHydrationWarning>
+                <div className="auth-header">
                   <h2 className="section-title">Sign in</h2>
-                  <p className="muted">Use your approved Firebase email and password. Receipts, mappings, and history stay scoped to your account.</p>
                 </div>
-                <form className="stack" onSubmit={(event) => void handleSignIn(event)}>
-                  <label className="label">
-                    Email
-                    <input
-                      className="field"
-                      autoComplete="email"
-                      required
-                      type="email"
-                      placeholder="you@example.com"
-                      value={authEmail}
-                      onChange={(event) => setAuthEmail(event.target.value)}
-                    />
-                  </label>
-                  <label className="label">
-                    Password
-                    <input
-                      className="field"
-                      autoComplete="current-password"
-                      minLength={6}
-                      required
-                      type="password"
-                      value={authPassword}
-                      onChange={(event) => setAuthPassword(event.target.value)}
-                    />
-                  </label>
-                  {authError ? <div className="error">{authError}</div> : null}
-                  <button className="button primary" disabled={isAuthenticating} type="submit">
-                    {isAuthenticating ? "Working..." : "Sign in"}
-                  </button>
-                </form>
+                {isClientReady ? (
+                  <form className="stack auth-form" onSubmit={(event) => void handleSignIn(event)}>
+                    <label className="label">
+                      Email
+                      <input
+                        className="field"
+                        autoComplete="email"
+                        required
+                        suppressHydrationWarning
+                        type="email"
+                        placeholder="you@example.com"
+                        value={authEmail}
+                        onChange={(event) => setAuthEmail(event.target.value)}
+                      />
+                    </label>
+                    <label className="label">
+                      Password
+                      <input
+                        className="field"
+                        autoComplete="current-password"
+                        minLength={6}
+                        required
+                        suppressHydrationWarning
+                        type="password"
+                        value={authPassword}
+                        onChange={(event) => setAuthPassword(event.target.value)}
+                      />
+                    </label>
+                    {authError ? <div className="error">{authError}</div> : null}
+                    <button className="button primary auth-button" disabled={isAuthenticating} type="submit">
+                      {isAuthenticating ? "Working..." : "Sign in"}
+                    </button>
+                  </form>
+                ) : (
+                  <div className="auth-form-placeholder" aria-hidden="true" />
+                )}
               </section>
             ) : (
               <>
@@ -1184,8 +1201,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                   <section className="stack">
                     <div className="panel stack">
                       <div className="upload-box">
-                        <strong>Upload or photograph a grocery receipt</strong>
-                        <div className="muted">The image is sent for parsing and is not persisted after inference.</div>
+                        <strong>Upload a grocery receipt photo</strong>
                         <div className="grid-2">
                           <button className="upload-button" onClick={openCameraPicker} type="button">
                             Take Photo
@@ -1203,7 +1219,6 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                           onChange={(event) => void handleFileChange(event)}
                         />
                         <input hidden ref={libraryInputRef} type="file" accept="image/*" onChange={(event) => void handleFileChange(event)} />
-                        {selectedFileName ? <div className="muted">Selected: {selectedFileName}</div> : null}
                       </div>
                       {error ? <div className="error">{error}</div> : null}
                     </div>
@@ -1385,7 +1400,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                         </section>
                       </>
                     ) : (
-                      <section className="empty-state">Upload a receipt to parse it into editable line items.</section>
+                      <section className="empty-state">Upload a grocery receipt photo</section>
                     )}
                   </section>
                 ) : null}
@@ -1537,10 +1552,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
 
                 {activeTab === "history" ? (
                   <section className="panel stack">
-                    <div>
-                      <h2 className="section-title">Receipt history</h2>
-                      <p className="muted">Saved receipts and item tables are private to this user account.</p>
-                    </div>
+                    <h2 className="section-title">Receipt history</h2>
                     {history.length > 0 ? (
                       <div className="history-list">
                         {history.map((entry) => (
@@ -1563,10 +1575,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                 {activeTab === "mapping" ? (
                   <section className="panel stack">
                     <div className="row spread">
-                      <div>
-                        <h2 className="section-title">Item mappings</h2>
-                        <p className="muted">Store-specific receipt item names mapped to canonical item name, type, and category.</p>
-                      </div>
+                      <h2 className="section-title">Item mappings</h2>
                       {!isMappingEditing ? (
                         <button className="icon-button" onClick={startMappingEdit} type="button" aria-label="Edit mappings" title="Edit mappings">
                           <span aria-hidden="true">✎</span>

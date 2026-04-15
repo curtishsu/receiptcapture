@@ -58,6 +58,10 @@ a {
   gap: 16px;
 }
 
+.app-frame-auth {
+  width: min(100%, 760px);
+}
+
 .app-card {
   width: 100%;
   min-height: 0;
@@ -71,8 +75,12 @@ a {
   overflow: hidden;
 }
 
+.app-card-auth {
+  background: rgba(255, 250, 243, 0.88);
+}
+
 .hero {
-  padding: 28px 24px 20px;
+  padding: 18px 20px 14px;
   background:
     linear-gradient(135deg, rgba(15, 118, 110, 0.16), rgba(255, 255, 255, 0)),
     linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 253, 249, 0.84));
@@ -83,13 +91,20 @@ a {
   display: flex;
   gap: 16px;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .hero h1,
 .hero h2,
 .section-title {
   margin: 0;
+}
+
+.app-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  text-transform: lowercase;
 }
 
 .hero p,
@@ -102,6 +117,76 @@ a {
   min-height: 0;
   overflow: auto;
   padding: 20px 16px;
+}
+
+.content-auth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(12px, 2.5vw, 20px) clamp(10px, 1.8vw, 16px);
+}
+
+.auth-panel {
+  width: 100%;
+  max-width: none;
+  padding: clamp(16px, 2.2vw, 22px) clamp(18px, 3vw, 30px) clamp(14px, 2vw, 18px);
+  gap: clamp(10px, 1.6vw, 16px);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(252, 247, 240, 0.94));
+  box-shadow: 0 12px 28px rgba(49, 37, 24, 0.07);
+  border-radius: 22px;
+}
+
+.auth-header {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  text-align: center;
+}
+
+.auth-header .section-title {
+  font-size: clamp(1rem, 1.8vw, 1.1rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.auth-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(9px, 1.4vw, 12px);
+}
+
+.auth-form .label {
+  gap: 7px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.auth-form .field {
+  padding: 12px 14px;
+  border-radius: 14px;
+}
+
+.auth-form .error {
+  grid-column: 1 / -1;
+}
+
+.auth-form-placeholder {
+  min-height: 8.5rem;
+}
+
+.auth-button {
+  width: auto;
+  min-width: 136px;
+  justify-self: center;
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding: 10px 22px;
+  border-radius: 999px;
+  font-weight: 700;
+  box-shadow: 0 9px 20px rgba(15, 118, 110, 0.18);
 }
 
 .stack {
@@ -241,8 +326,8 @@ textarea.field:focus {
 }
 
 .profile-button {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border: 0;
   border-radius: 999px;
   background: linear-gradient(135deg, var(--accent), var(--accent-strong));
@@ -959,7 +1044,7 @@ textarea.field:focus {
 }
 
 .empty-state {
-  padding: 22px;
+  padding: 18px;
   border: 1px dashed var(--line);
   border-radius: var(--radius);
   text-align: center;
@@ -974,7 +1059,7 @@ textarea.field:focus {
 
 .upload-box {
   display: grid;
-  gap: 12px;
+  gap: 14px;
   place-items: center;
   text-align: center;
   border: 1px dashed rgba(15, 118, 110, 0.35);

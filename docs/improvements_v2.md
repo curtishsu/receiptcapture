@@ -22,4 +22,4 @@ The tabs at the bottom should persist on all screens. Currently, if you go to a 
 
 ## Edit Receipts
 1. When editing a receipt, I expect unit to be a dropdown that contains all the past units. The dropdown menu should be broken into two headers. 1. Unit (containing lb, oz etc.) and then 'per unit'. This is the "/pound", etc. The unit one should be above. 
-2. When clicking save', the 'Receipt updated.' confirmation is at the top. It should be at the bottom about the 'Save Chagnes' button
+2. When clicking save', the 'Receipt updated.' confirmation is at the top. It should be at the bottom about the 'Save Changes' button

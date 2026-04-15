@@ -1,5 +1,5 @@
-const CACHE_NAME = "receipt-tracker-static-v1";
-const STATIC_ASSET_DESTINATIONS = new Set(["font", "image", "script", "style", "worker"]);
+const CACHE_NAME = "foodprint-static-v2";
+const STATIC_ASSET_DESTINATIONS = new Set(["font", "image"]);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
