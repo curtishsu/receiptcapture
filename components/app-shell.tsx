@@ -545,6 +545,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   const [statsSubjectSearch, setStatsSubjectSearch] = useState("");
   const [statsDateBucket, setStatsDateBucket] = useState<StatsDateBucket>("month");
   const [isStatsSubjectMenuOpen, setIsStatsSubjectMenuOpen] = useState(false);
+  const [isStatsFilterMenuOpen, setIsStatsFilterMenuOpen] = useState(false);
   const [statsRangePreset, setStatsRangePreset] = useState<StatsRangePreset>("all_time");
   const [statsStartDate, setStatsStartDate] = useState("");
   const [statsEndDate, setStatsEndDate] = useState("");
@@ -554,6 +555,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   const [isPending, startTransition] = useTransition();
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const statsSubjectMenuRef = useRef<HTMLDivElement | null>(null);
+  const statsFilterMenuRef = useRef<HTMLDivElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const libraryInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -708,6 +710,22 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
     window.addEventListener("mousedown", handlePointerDown);
     return () => window.removeEventListener("mousedown", handlePointerDown);
   }, [isStatsSubjectMenuOpen]);
+
+  useEffect(() => {
+    if (!isStatsFilterMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent): void {
+      if (!statsFilterMenuRef.current?.contains(event.target as Node)) {
+        setIsStatsFilterMenuOpen(false);
+        setIsStatsSubjectMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [isStatsFilterMenuOpen]);
 
   async function handleSignIn(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -1420,111 +1438,132 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                     <section className="panel stack">
                       <div className="stats-panel-header">
                         <h2 className="section-title">Food Deep Dive</h2>
-                      </div>
-                      <div className="stats-deep-dive-controls">
-                          <div className="stats-subject-picker" ref={statsSubjectMenuRef}>
-                            <div className="field stats-subject-trigger-shell">
-                              <button
-                                aria-expanded={isStatsSubjectMenuOpen}
-                                aria-haspopup="listbox"
-                                className="stats-subject-trigger"
-                                onClick={toggleStatsSubjectMenu}
-                                type="button"
-                              >
-                                <span className="stats-subject-trigger-label">
-                                  {selectedStatsSubject?.label ?? "All foods"}
-                                </span>
-                                <span className={`stats-kind-chip ${selectedStatsSubject ? selectedStatsSubject.kind : "all"}`}>
-                                  {selectedStatsSubject ? getStatsSubjectKindLabel(selectedStatsSubject.kind) : "All"}
-                                </span>
-                              </button>
-                              {selectedStatsSubject ? (
-                                <button
-                                  aria-label="Clear food filter"
-                                  className="stats-subject-clear"
-                                  onClick={() => selectStatsSubject(null)}
-                                  type="button"
-                                >
-                                  x
-                                </button>
-                              ) : null}
-                            </div>
-                            {isStatsSubjectMenuOpen ? (
-                              <div className="stats-subject-menu" role="listbox">
-                                <div className="stats-subject-search-shell">
-                                  <input
-                                    autoFocus
-                                    className="field stats-subject-search"
-                                    onChange={(event) => setStatsSubjectSearch(event.target.value)}
-                                    placeholder="Search foods"
-                                    type="text"
-                                    value={statsSubjectSearch}
-                                  />
-                                </div>
-                                <button className="stats-subject-option" onClick={() => selectStatsSubject(null)} type="button">
-                                  <span>All foods</span>
-                                  <span className="stats-kind-chip all">All</span>
-                                </button>
-                                {filteredStatsSubjectOptions.map((option) => (
+                        <div className="stats-filter-menu" ref={statsFilterMenuRef}>
+                          <button
+                            aria-expanded={isStatsFilterMenuOpen}
+                            aria-haspopup="dialog"
+                            className="button ghost stats-filter-button"
+                            onClick={() => {
+                              setIsStatsFilterMenuOpen((current) => {
+                                const next = !current;
+                                if (!next) {
+                                  setIsStatsSubjectMenuOpen(false);
+                                }
+                                return next;
+                              });
+                            }}
+                            type="button"
+                          >
+                            Filter
+                          </button>
+                          <div className={`stats-filter-panel${isStatsFilterMenuOpen ? " open" : ""}`}>
+                            <div className="stats-deep-dive-controls">
+                              <div className="stats-subject-picker" ref={statsSubjectMenuRef}>
+                                <div className="field stats-subject-trigger-shell">
                                   <button
-                                    className="stats-subject-option"
-                                    key={`${option.kind}-${option.value}`}
-                                    onClick={() => selectStatsSubject(option)}
+                                    aria-expanded={isStatsSubjectMenuOpen}
+                                    aria-haspopup="listbox"
+                                    className="stats-subject-trigger"
+                                    onClick={toggleStatsSubjectMenu}
                                     type="button"
                                   >
-                                    <span>{option.label}</span>
-                                    <span className={`stats-kind-chip ${option.kind}`}>{getStatsSubjectKindLabel(option.kind)}</span>
+                                    <span className="stats-subject-trigger-label">
+                                      {selectedStatsSubject?.label ?? "All foods"}
+                                    </span>
+                                    <span className={`stats-kind-chip ${selectedStatsSubject ? selectedStatsSubject.kind : "all"}`}>
+                                      {selectedStatsSubject ? getStatsSubjectKindLabel(selectedStatsSubject.kind) : "All"}
+                                    </span>
                                   </button>
-                                ))}
-                                {filteredStatsSubjectOptions.length === 0 ? <div className="stats-subject-empty muted">No matching foods.</div> : null}
+                                  {selectedStatsSubject ? (
+                                    <button
+                                      aria-label="Clear food filter"
+                                      className="stats-subject-clear"
+                                      onClick={() => selectStatsSubject(null)}
+                                      type="button"
+                                    >
+                                      x
+                                    </button>
+                                  ) : null}
+                                </div>
+                                {isStatsSubjectMenuOpen ? (
+                                  <div className="stats-subject-menu" role="listbox">
+                                    <div className="stats-subject-search-shell">
+                                      <input
+                                        autoFocus
+                                        className="field stats-subject-search"
+                                        onChange={(event) => setStatsSubjectSearch(event.target.value)}
+                                        placeholder="Search foods"
+                                        type="text"
+                                        value={statsSubjectSearch}
+                                      />
+                                    </div>
+                                    <button className="stats-subject-option" onClick={() => selectStatsSubject(null)} type="button">
+                                      <span>All foods</span>
+                                      <span className="stats-kind-chip all">All</span>
+                                    </button>
+                                    {filteredStatsSubjectOptions.map((option) => (
+                                      <button
+                                        className="stats-subject-option"
+                                        key={`${option.kind}-${option.value}`}
+                                        onClick={() => selectStatsSubject(option)}
+                                        type="button"
+                                      >
+                                        <span>{option.label}</span>
+                                        <span className={`stats-kind-chip ${option.kind}`}>{getStatsSubjectKindLabel(option.kind)}</span>
+                                      </button>
+                                    ))}
+                                    {filteredStatsSubjectOptions.length === 0 ? <div className="stats-subject-empty muted">No matching foods.</div> : null}
+                                  </div>
+                                ) : null}
                               </div>
-                              ) : null}
+                              <label className="stats-inline-select">
+                                <select
+                                  className="field stats-range-select"
+                                  value={statsRangePreset}
+                                  onChange={(event) => setStatsRangePreset(event.target.value as StatsRangePreset)}
+                                >
+                                  <option value="all_time">All time</option>
+                                  <option value="last_365">Last 365</option>
+                                  <option value="last_30">Last 30</option>
+                                  <option value="last_7">Last 7</option>
+                                  <option value="custom">Custom date</option>
+                                </select>
+                              </label>
+                              <label className="stats-inline-select">
+                                <select className="field stats-metric-select" value={statsMetric} onChange={(event) => setStatsMetric(event.target.value as StatsMetric)}>
+                                  <option value="quantity">Quantity</option>
+                                  <option value="dollars">Dollars</option>
+                                  <option value="total_amount">Total Amount</option>
+                                </select>
+                              </label>
+                            </div>
+                            {statsRangePreset === "custom" ? (
+                              <div className="stats-date-range stats-filter-date-range">
+                                <label className="label">
+                                  Start date
+                                  <input
+                                    className="field"
+                                    type="date"
+                                    max={statsEndDate || undefined}
+                                    value={statsStartDate}
+                                    onChange={(event) => setStatsStartDate(event.target.value)}
+                                  />
+                                </label>
+                                <label className="label">
+                                  End date
+                                  <input
+                                    className="field"
+                                    type="date"
+                                    min={statsStartDate || undefined}
+                                    value={statsEndDate}
+                                    onChange={(event) => setStatsEndDate(event.target.value)}
+                                  />
+                                </label>
+                              </div>
+                            ) : null}
                           </div>
-                          <label className="stats-inline-select">
-                            <select
-                              className="field stats-range-select"
-                              value={statsRangePreset}
-                              onChange={(event) => setStatsRangePreset(event.target.value as StatsRangePreset)}
-                            >
-                              <option value="all_time">All time</option>
-                              <option value="last_365">Last 365</option>
-                              <option value="last_30">Last 30</option>
-                              <option value="last_7">Last 7</option>
-                              <option value="custom">Custom date</option>
-                            </select>
-                          </label>
-                          <label className="stats-inline-select">
-                            <select className="field stats-metric-select" value={statsMetric} onChange={(event) => setStatsMetric(event.target.value as StatsMetric)}>
-                              <option value="quantity">Quantity</option>
-                              <option value="dollars">Dollars</option>
-                              <option value="total_amount">Total Amount</option>
-                            </select>
-                          </label>
-                      </div>
-                      {statsRangePreset === "custom" ? (
-                        <div className="stats-date-range">
-                          <label className="label">
-                            Start date
-                            <input
-                              className="field"
-                              type="date"
-                              max={statsEndDate || undefined}
-                              value={statsStartDate}
-                              onChange={(event) => setStatsStartDate(event.target.value)}
-                            />
-                          </label>
-                          <label className="label">
-                            End date
-                            <input
-                              className="field"
-                              type="date"
-                              min={statsStartDate || undefined}
-                              value={statsEndDate}
-                              onChange={(event) => setStatsEndDate(event.target.value)}
-                            />
-                          </label>
                         </div>
-                      ) : null}
+                      </div>
                       <StatsTimeSeriesChart
                         dateBucket={statsDateBucket}
                         metric={statsMetric}
