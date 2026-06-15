@@ -48,6 +48,7 @@ type SessionUser = {
 type AppShellProps = {
   initialSessionUser: SessionUser | null;
   initialTab: TabKey;
+  initialStats: StatsResponse | null;
 };
 
 type StatsRangePreset = "all_time" | "last_365" | "last_30" | "last_7" | "custom";
@@ -430,7 +431,7 @@ const MAPPING_FIELD_LABELS = {
   item_category: "Category"
 } as const;
 
-export function AppShell({ initialSessionUser, initialTab }: AppShellProps): ReactElement {
+export function AppShell({ initialSessionUser, initialTab, initialStats }: AppShellProps): ReactElement {
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(initialSessionUser);
   const [isClientReady, setIsClientReady] = useState(false);
@@ -441,7 +442,9 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   const [receipt, setReceipt] = useState<ParsedReceipt | null>(null);
   const [llmItems, setLlmItems] = useState<ReceiptItemInput[]>([]);
   const [selectedFileName, setSelectedFileName] = useState("");
-  const [stats, setStats] = useState<StatsResponse>(EMPTY_STATS);
+  const [stats, setStats] = useState<StatsResponse>(initialStats ?? EMPTY_STATS);
+  const [isStatsLoading, setIsStatsLoading] = useState(false);
+  const [hasLoadedStats, setHasLoadedStats] = useState(Boolean(initialStats));
   const [history, setHistory] = useState<ReceiptRecord[]>([]);
   const [mappings, setMappings] = useState<ItemMappingRecord[]>([]);
   const [mappingDrafts, setMappingDrafts] = useState<MappingInput[]>([]);
@@ -472,6 +475,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const libraryInputRef = useRef<HTMLInputElement | null>(null);
   const statsRequestIdRef = useRef(0);
+  const shouldSkipInitialStatsLoadRef = useRef(Boolean(initialStats && initialTab === "stats"));
 
   async function loadHistory(): Promise<void> {
     if (!sessionUser) {
@@ -492,6 +496,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
       return;
     }
 
+    setIsStatsLoading(true);
     const requestId = statsRequestIdRef.current + 1;
     statsRequestIdRef.current = requestId;
     const { startDate, endDate } = getStatsDateRange(statsRangePreset, statsStartDate, statsEndDate);
@@ -509,17 +514,24 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
       searchParams.set("subjectValue", statsSubjectValue);
     }
 
-    const response = await fetch(`/api/stats?${searchParams.toString()}`);
-    if (!response.ok) {
-      return;
-    }
+    try {
+      const response = await fetch(`/api/stats?${searchParams.toString()}`);
+      if (!response.ok) {
+        return;
+      }
 
-    const data = (await response.json()) as StatsResponse;
-    if (statsRequestIdRef.current !== requestId) {
-      return;
-    }
+      const data = (await response.json()) as StatsResponse;
+      if (statsRequestIdRef.current !== requestId) {
+        return;
+      }
 
-    setStats(data);
+      setStats(data);
+      setHasLoadedStats(true);
+    } finally {
+      if (statsRequestIdRef.current === requestId) {
+        setIsStatsLoading(false);
+      }
+    }
   }
 
   async function loadKnownUnits(): Promise<void> {
@@ -573,6 +585,11 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   }, [activeTab, knownUnits.length, receipt, sessionUser]);
 
   useEffect(() => {
+    if (shouldSkipInitialStatsLoadRef.current) {
+      shouldSkipInitialStatsLoadRef.current = false;
+      return;
+    }
+
     if (!sessionUser || activeTab !== "stats") {
       return;
     }
@@ -701,6 +718,8 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
     setMappingDrafts([]);
     setDeletedMappingIds([]);
     setStats(EMPTY_STATS);
+    setIsStatsLoading(false);
+    setHasLoadedStats(false);
     setKnownUnits([]);
     setStatsMetric("dollars");
     setStatsSubjectKind(null);
@@ -938,8 +957,10 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
     setReceipt(null);
     setLlmItems([]);
     setSelectedFileName("");
-    await Promise.all([loadHistory(), loadStats(), loadKnownUnits(), loadMappings()]);
     setActiveTab("history");
+    startTransition(() => {
+      void Promise.allSettled([loadHistory(), loadStats(), loadKnownUnits(), loadMappings()]);
+    });
   }
 
   function startMappingEdit(): void {
@@ -1023,6 +1044,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
 
   const visibleMappings = isMappingEditing ? mappingDrafts : mappings.map(mappingToInput);
   const groupedSavedMappings = groupMappingsByStore(mappings.map(mappingToInput));
+  const shouldShowStatsSkeleton = activeTab === "stats" && !hasLoadedStats;
   const selectedStatsSubject =
     stats.filters.subject_options.find((option) => option.kind === statsSubjectKind && option.value === statsSubjectValue) ?? null;
   const statsTopItems = stats.deep_dive.top_items;
@@ -1154,7 +1176,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                 ) : null}
 
                 {activeTab === "photo" ? (
-                  <section className="stack">
+                  <section className="stack" aria-busy={isStatsLoading}>
                     <div className="panel stack">
                       <div className="upload-box">
                         <strong>Upload a grocery receipt photo</strong>
@@ -1366,11 +1388,19 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                     <div className="stats-grid">
                       <article className="stat-card">
                         <span className="muted">Spend L7 Days</span>
-                        <strong>${stats.spend_last_7_days.toFixed(2)}</strong>
+                        {shouldShowStatsSkeleton ? (
+                          <span className="stats-skeleton-line stats-skeleton-value" aria-hidden="true" />
+                        ) : (
+                          <strong>${stats.spend_last_7_days.toFixed(2)}</strong>
+                        )}
                       </article>
                       <article className="stat-card">
                         <span className="muted">Spend L30 Days</span>
-                        <strong>${stats.spend_last_30_days.toFixed(2)}</strong>
+                        {shouldShowStatsSkeleton ? (
+                          <span className="stats-skeleton-line stats-skeleton-value" aria-hidden="true" />
+                        ) : (
+                          <strong>${stats.spend_last_30_days.toFixed(2)}</strong>
+                        )}
                       </article>
                     </div>
                     <section className="panel stack">
@@ -1502,45 +1532,70 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                           </div>
                         </div>
                       </div>
-                      <StatsTimeSeriesChart
-                        dateBucket={statsDateBucket}
-                        metric={statsMetric}
-                        onDateBucketChange={setStatsDateBucket}
-                        points={stats.deep_dive.series}
-                        unitLabel={stats.deep_dive.series_unit_label}
-                        unitTooltip={stats.deep_dive.series_unit_tooltip}
-                      />
-                      <StatsBreakdownChart
-                        breakdownKind={statsBreakdownKind}
-                        metric={statsMetric}
-                        onBreakdownKindChange={setStatsBreakdownKind}
-                        slices={stats.deep_dive.breakdown.slices}
-                      />
-                      <div className="stats-table-header">
-                        <h3 className="section-title">Top Items</h3>
-                      </div>
-                      {statsTopItems.length > 0 ? (
+                      {shouldShowStatsSkeleton ? (
                         <>
-                          <div className="stats-top-items-list">
-                            {visibleStatsTopItems.map((item) => (
-                              <div className="stats-top-item-row" key={item.item_name}>
-                                <span className="stats-top-item-name">{item.item_name}</span>
-                                <span className="stats-top-item-value">{getStatsDisplayLabel(statsMetric, item)}</span>
-                              </div>
-                            ))}
+                          <div className="stats-chart-card stats-loading-card" aria-hidden="true">
+                            <span className="stats-skeleton-line stats-skeleton-heading" />
+                            <span className="stats-skeleton-line stats-skeleton-chart" />
                           </div>
-                          {visibleTopItemsCount < statsTopItems.length ? (
-                            <button
-                              className="button ghost stats-top-items-toggle"
-                              onClick={() => setVisibleTopItemsCount((current) => current + 5)}
-                              type="button"
-                            >
-                              Show Next 5
-                            </button>
-                          ) : null}
+                          <div className="stats-chart-card stats-loading-card" aria-hidden="true">
+                            <span className="stats-skeleton-line stats-skeleton-heading" />
+                            <span className="stats-skeleton-line stats-skeleton-chart stats-skeleton-chart-round" />
+                          </div>
+                          <div className="stats-table-header">
+                            <h3 className="section-title">Top Items</h3>
+                          </div>
+                          <div className="stats-loading-list" aria-hidden="true">
+                            <span className="stats-skeleton-line stats-skeleton-row" />
+                            <span className="stats-skeleton-line stats-skeleton-row" />
+                            <span className="stats-skeleton-line stats-skeleton-row" />
+                            <span className="stats-skeleton-line stats-skeleton-row" />
+                            <span className="stats-skeleton-line stats-skeleton-row" />
+                          </div>
                         </>
                       ) : (
-                        <div className="empty-state">Save receipts in the selected date range to generate food rankings.</div>
+                        <>
+                          <StatsTimeSeriesChart
+                            dateBucket={statsDateBucket}
+                            metric={statsMetric}
+                            onDateBucketChange={setStatsDateBucket}
+                            points={stats.deep_dive.series}
+                            unitLabel={stats.deep_dive.series_unit_label}
+                            unitTooltip={stats.deep_dive.series_unit_tooltip}
+                          />
+                          <StatsBreakdownChart
+                            breakdownKind={statsBreakdownKind}
+                            metric={statsMetric}
+                            onBreakdownKindChange={setStatsBreakdownKind}
+                            slices={stats.deep_dive.breakdown.slices}
+                          />
+                          <div className="stats-table-header">
+                            <h3 className="section-title">Top Items</h3>
+                          </div>
+                          {statsTopItems.length > 0 ? (
+                            <>
+                              <div className="stats-top-items-list">
+                                {visibleStatsTopItems.map((item) => (
+                                  <div className="stats-top-item-row" key={item.item_name}>
+                                    <span className="stats-top-item-name">{item.item_name}</span>
+                                    <span className="stats-top-item-value">{getStatsDisplayLabel(statsMetric, item)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              {visibleTopItemsCount < statsTopItems.length ? (
+                                <button
+                                  className="button ghost stats-top-items-toggle"
+                                  onClick={() => setVisibleTopItemsCount((current) => current + 5)}
+                                  type="button"
+                                >
+                                  Show Next 5
+                                </button>
+                              ) : null}
+                            </>
+                          ) : (
+                            <div className="empty-state">Save receipts in the selected date range to generate food rankings.</div>
+                          )}
+                        </>
                       )}
                     </section>
                   </section>

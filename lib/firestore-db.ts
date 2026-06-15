@@ -17,6 +17,7 @@ import type {
 import { createId } from "@/lib/ids";
 import { firestore } from "@/lib/firebase-admin";
 import { normalizeItemName, normalizeKeyPart, toTitleCaseText } from "@/lib/normalize";
+import { revalidateTag, unstable_cache } from "next/cache";
 
 const COLLECTIONS = {
   users: "users",
@@ -26,6 +27,29 @@ const COLLECTIONS = {
   itemMappings: "item_mappings",
   itemStorePriceMemory: "item_store_price_memory"
 } as const;
+
+function receiptTag(userId: string): string {
+  return `receipts:${userId}`;
+}
+
+function receiptItemTag(userId: string): string {
+  return `receipt-items:${userId}`;
+}
+
+function mappingTag(userId: string): string {
+  return `item-mappings:${userId}`;
+}
+
+function statsTag(userId: string): string {
+  return `stats:${userId}`;
+}
+
+function invalidateUserDataCaches(userId: string): void {
+  revalidateTag(receiptTag(userId), "max");
+  revalidateTag(receiptItemTag(userId), "max");
+  revalidateTag(mappingTag(userId), "max");
+  revalidateTag(statsTag(userId), "max");
+}
 
 function isoNow(): string {
   return new Date().toISOString();
@@ -294,82 +318,98 @@ function buildMappingRecordFromItem(
 }
 
 async function upsertMappingsFromReceiptItems(userId: string, storeName: string, items: ReceiptItemInput[]): Promise<void> {
-  for (const item of items) {
-    const receiptItemName = sanitizeText(item.receipt_item_name);
-    if (!receiptItemName) {
-      continue;
-    }
+  await Promise.all(
+    items.map(async (item) => {
+      const receiptItemName = sanitizeText(item.receipt_item_name);
+      if (!receiptItemName) {
+        return;
+      }
 
-    const id = mappingDocId(userId, storeName, receiptItemName);
-    const existingSnapshot = await firestore.collection(COLLECTIONS.itemMappings).doc(id).get();
-    const existing = existingSnapshot.exists ? coerceItemMappingRecord(existingSnapshot.data() as Partial<ItemMappingRecord>) : null;
-    const mapping = buildMappingRecordFromItem(userId, storeName, item, existing);
-    if (!mapping) {
-      continue;
-    }
+      const id = mappingDocId(userId, storeName, receiptItemName);
+      const existingSnapshot = await firestore.collection(COLLECTIONS.itemMappings).doc(id).get();
+      const existing = existingSnapshot.exists
+        ? coerceItemMappingRecord(existingSnapshot.data() as Partial<ItemMappingRecord>)
+        : null;
+      const mapping = buildMappingRecordFromItem(userId, storeName, item, existing);
+      if (!mapping) {
+        return;
+      }
 
-    await firestore.collection(COLLECTIONS.itemMappings).doc(mapping.id).set(mapping);
-    await propagateMappingToReceiptItems(userId, mapping);
-  }
+      await firestore.collection(COLLECTIONS.itemMappings).doc(mapping.id).set(mapping);
+      await propagateMappingToReceiptItems(userId, mapping);
+    })
+  );
 }
 
 async function upsertPriceMemoryFromReceiptItems(userId: string, storeName: string, purchaseDate: string, items: ReceiptItemInput[]): Promise<void> {
-  for (const item of items) {
-    const itemName = toTitleCaseText(item.item_name) ?? sanitizeText(item.receipt_item_name);
-    const unit = sanitizeText(item.unit);
-    const pricePerUnit = toNumberOrNull(item.price_per_unit);
-    if (!itemName || normalizeKeyPart(unit) !== "LB" || !pricePerUnit || pricePerUnit <= 0) {
-      continue;
-    }
+  await Promise.all(
+    items.map(async (item) => {
+      const itemName = toTitleCaseText(item.item_name) ?? sanitizeText(item.receipt_item_name);
+      const unit = sanitizeText(item.unit);
+      const pricePerUnit = toNumberOrNull(item.price_per_unit);
+      if (!itemName || normalizeKeyPart(unit) !== "LB" || !pricePerUnit || pricePerUnit <= 0) {
+        return;
+      }
 
-    const id = itemStorePriceMemoryDocId(userId, storeName, itemName, unit);
-    const existingSnapshot = await firestore.collection(COLLECTIONS.itemStorePriceMemory).doc(id).get();
-    const existing = existingSnapshot.exists
-      ? coerceItemStorePriceMemoryRecord(existingSnapshot.data() as Partial<ItemStorePriceMemoryRecord>)
-      : null;
-    const now = isoNow();
-    const memory: ItemStorePriceMemoryRecord = {
-      id,
-      user_id: userId,
-      store_name: sanitizeText(storeName),
-      store_name_normalized: normalizeKeyPart(storeName),
-      item_name: itemName,
-      item_name_normalized: normalizeItemName(itemName),
-      unit,
-      price_per_unit: pricePerUnit,
-      last_price: toNumberOrNull(item.price),
-      last_purchase_date: sanitizeText(purchaseDate),
-      created_at: existing?.created_at ?? now,
-      updated_at: now
-    };
+      const id = itemStorePriceMemoryDocId(userId, storeName, itemName, unit);
+      const existingSnapshot = await firestore.collection(COLLECTIONS.itemStorePriceMemory).doc(id).get();
+      const existing = existingSnapshot.exists
+        ? coerceItemStorePriceMemoryRecord(existingSnapshot.data() as Partial<ItemStorePriceMemoryRecord>)
+        : null;
+      const now = isoNow();
+      const memory: ItemStorePriceMemoryRecord = {
+        id,
+        user_id: userId,
+        store_name: sanitizeText(storeName),
+        store_name_normalized: normalizeKeyPart(storeName),
+        item_name: itemName,
+        item_name_normalized: normalizeItemName(itemName),
+        unit,
+        price_per_unit: pricePerUnit,
+        last_price: toNumberOrNull(item.price),
+        last_purchase_date: sanitizeText(purchaseDate),
+        created_at: existing?.created_at ?? now,
+        updated_at: now
+      };
 
-    await firestore.collection(COLLECTIONS.itemStorePriceMemory).doc(id).set(memory);
-  }
+      await firestore.collection(COLLECTIONS.itemStorePriceMemory).doc(id).set(memory);
+    })
+  );
 }
 
 async function getReceiptItemsForUser(userId: string): Promise<ReceiptItemRecord[]> {
-  const snapshot = await firestore.collection(COLLECTIONS.receiptItems).where("user_id", "==", userId).get();
-  return snapshot.docs.map((doc) => coerceReceiptItemRecord(doc.data() as Partial<ReceiptItemRecord>));
+  return unstable_cache(
+    async () => {
+      const snapshot = await firestore.collection(COLLECTIONS.receiptItems).where("user_id", "==", userId).get();
+      return snapshot.docs.map((doc) => coerceReceiptItemRecord(doc.data() as Partial<ReceiptItemRecord>));
+    },
+    [COLLECTIONS.receiptItems, userId],
+    { tags: [receiptItemTag(userId), statsTag(userId)] }
+  )();
 }
 
 async function getMappingsForUser(userId: string): Promise<ItemMappingRecord[]> {
-  const snapshot = await firestore.collection(COLLECTIONS.itemMappings).where("user_id", "==", userId).get();
-  return snapshot.docs.map((doc) => coerceItemMappingRecord(doc.data() as Partial<ItemMappingRecord>));
+  return unstable_cache(
+    async () => {
+      const snapshot = await firestore.collection(COLLECTIONS.itemMappings).where("user_id", "==", userId).get();
+      return snapshot.docs.map((doc) => coerceItemMappingRecord(doc.data() as Partial<ItemMappingRecord>));
+    },
+    [COLLECTIONS.itemMappings, userId],
+    { tags: [mappingTag(userId)] }
+  )();
 }
 
 async function propagateMappingToReceiptItems(userId: string, mapping: ItemMappingRecord): Promise<void> {
-  const snapshot = await firestore.collection(COLLECTIONS.receiptItems).where("user_id", "==", userId).get();
+  const snapshot = await firestore
+    .collection(COLLECTIONS.receiptItems)
+    .where("user_id", "==", userId)
+    .where("store_name_normalized", "==", mapping.store_name_normalized)
+    .where("receipt_item_name_normalized", "==", mapping.receipt_item_name_normalized)
+    .get();
   const batch = firestore.batch();
 
   snapshot.docs.forEach((doc) => {
     const item = coerceReceiptItemRecord(doc.data() as Partial<ReceiptItemRecord>);
-    if (
-      item.store_name_normalized !== mapping.store_name_normalized ||
-      item.receipt_item_name_normalized !== mapping.receipt_item_name_normalized
-    ) {
-      return;
-    }
-
     const llmItemName = item.llm_item_name || item.item_name;
     const llmItemType = item.llm_item_type;
     const llmItemCategory = item.llm_item_category;
@@ -391,6 +431,19 @@ async function propagateMappingToReceiptItems(userId: string, mapping: ItemMappi
   });
 
   await batch.commit();
+}
+
+function runPostSaveMaintenance(userId: string, payload: SaveReceiptPayload): void {
+  void Promise.allSettled([
+    upsertMappingsFromReceiptItems(userId, payload.store_name, payload.items),
+    upsertPriceMemoryFromReceiptItems(userId, payload.store_name, payload.purchase_date, payload.items)
+  ]).then((results) => {
+    results.forEach((result) => {
+      if (result.status === "rejected") {
+        console.error("Post-save maintenance failed", result.reason);
+      }
+    });
+  });
 }
 
 export async function upsertUserByEmail(email: string): Promise<UserRecord> {
@@ -499,16 +552,22 @@ export async function saveReceipt(userId: string, payload: SaveReceiptPayload): 
   });
 
   await batch.commit();
-  await upsertMappingsFromReceiptItems(userId, payload.store_name, payload.items);
-  await upsertPriceMemoryFromReceiptItems(userId, payload.store_name, payload.purchase_date, payload.items);
+  invalidateUserDataCaches(userId);
+  runPostSaveMaintenance(userId, payload);
   return { receipt };
 }
 
 export async function listReceipts(userId: string): Promise<ReceiptRecord[]> {
-  const snapshot = await firestore.collection(COLLECTIONS.receipts).where("user_id", "==", userId).get();
-  return snapshot.docs
-    .map((doc) => coerceReceiptRecord(doc.data() as Partial<ReceiptRecord>))
-    .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date) || b.created_at.localeCompare(a.created_at));
+  const receipts = await unstable_cache(
+    async () => {
+      const snapshot = await firestore.collection(COLLECTIONS.receipts).where("user_id", "==", userId).get();
+      return snapshot.docs.map((doc) => coerceReceiptRecord(doc.data() as Partial<ReceiptRecord>));
+    },
+    [COLLECTIONS.receipts, userId],
+    { tags: [receiptTag(userId), statsTag(userId)] }
+  )();
+
+  return [...receipts].sort((a, b) => b.purchase_date.localeCompare(a.purchase_date) || b.created_at.localeCompare(a.created_at));
 }
 
 export async function getReceiptDetail(userId: string, receiptId: string): Promise<{ receipt: ReceiptRecord; items: ReceiptItemRecord[] } | null> {
@@ -565,8 +624,8 @@ export async function updateReceipt(
   });
 
   await batch.commit();
-  await upsertMappingsFromReceiptItems(userId, payload.store_name, payload.items);
-  await upsertPriceMemoryFromReceiptItems(userId, payload.store_name, payload.purchase_date, payload.items);
+  invalidateUserDataCaches(userId);
+  runPostSaveMaintenance(userId, payload);
   return { receipt, items: nextItems };
 }
 
@@ -580,6 +639,7 @@ export async function deleteReceipt(userId: string, receiptId: string): Promise<
   batch.delete(firestore.collection(COLLECTIONS.receipts).doc(receiptId));
   current.items.forEach((item) => batch.delete(firestore.collection(COLLECTIONS.receiptItems).doc(item.id)));
   await batch.commit();
+  invalidateUserDataCaches(userId);
   return true;
 }
 
@@ -1262,7 +1322,7 @@ export async function getStats(userId: string, options: GetStatsOptions = {}): P
 
 export async function listItemMappings(userId: string): Promise<ItemMappingRecord[]> {
   const mappings = await getMappingsForUser(userId);
-  return mappings.sort(
+  return [...mappings].sort(
     (a, b) =>
       a.store_name.localeCompare(b.store_name) ||
       a.receipt_item_name.localeCompare(b.receipt_item_name) ||
@@ -1325,6 +1385,8 @@ export async function updateItemMappings(
     await propagateMappingToReceiptItems(userId, mapping);
   }
 
+  invalidateUserDataCaches(userId);
+
   return listItemMappings(userId);
 }
 
@@ -1361,6 +1423,7 @@ export async function acceptItemSuggestion(userId: string, receiptItemId: string
 
   await firestore.collection(COLLECTIONS.itemMappings).doc(id).set(mapping);
   await propagateMappingToReceiptItems(userId, mapping);
+  invalidateUserDataCaches(userId);
   return mapping;
 }
 
@@ -1381,5 +1444,6 @@ export async function declineItemSuggestion(userId: string, receiptItemId: strin
     updated_at: isoNow()
   });
 
+  invalidateUserDataCaches(userId);
   return true;
 }
