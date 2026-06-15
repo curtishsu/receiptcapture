@@ -6,6 +6,7 @@ import type {
   ReceiptRecord,
   SaveReceiptPayload,
   SessionRecord,
+  StatsBreakdownKind,
   StatsDateBucket,
   StatsMetric,
   StatsSubjectKind,
@@ -32,6 +33,10 @@ function isoNow(): string {
 
 function toNumberOrNull(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function toMeasureNumberOrDefault(value: number | null | undefined, fallback = 1): number {
+  return toNumberOrNull(value) ?? fallback;
 }
 
 function sanitizeText(value: string | null | undefined, fallback = ""): string {
@@ -105,9 +110,9 @@ function buildReceiptItemRecord(
     receipt_item_name_normalized: normalizeKeyPart(receiptItemName),
     item_name: itemName,
     item_name_normalized: normalizeItemName(itemName),
-    amount: toNumberOrNull(item.amount),
+    amount: toMeasureNumberOrDefault(item.amount),
     unit: sanitizeText(item.unit) || null,
-    quantity: toNumberOrNull(item.quantity),
+    quantity: toMeasureNumberOrDefault(item.quantity),
     price: toNumberOrNull(item.price),
     price_per_unit: toNumberOrNull(item.price_per_unit),
     is_excluded: isExcludedItem(item),
@@ -154,9 +159,9 @@ function coerceReceiptItemRecord(raw: Partial<ReceiptItemRecord>): ReceiptItemRe
     receipt_item_name_normalized: sanitizeText(raw.receipt_item_name_normalized, normalizeKeyPart(receiptItemName)),
     item_name: itemName,
     item_name_normalized: sanitizeText(raw.item_name_normalized, normalizeItemName(itemName)),
-    amount: toNumberOrNull(raw.amount ?? legacyRaw.quantum_of_unit ?? legacyRaw.corrected_quantum_of_unit),
+    amount: toMeasureNumberOrDefault(raw.amount ?? legacyRaw.quantum_of_unit ?? legacyRaw.corrected_quantum_of_unit),
     unit: sanitizeText(raw.unit) || null,
-    quantity: toNumberOrNull(raw.quantity ?? legacyRaw.quantity_purchased ?? legacyRaw.corrected_quantity_purchased),
+    quantity: toMeasureNumberOrDefault(raw.quantity ?? legacyRaw.quantity_purchased ?? legacyRaw.corrected_quantity_purchased),
     price: toNumberOrNull(raw.price ?? legacyRaw.line_price),
     price_per_unit: toNumberOrNull(
       raw.price_per_unit ??
@@ -229,7 +234,7 @@ function coerceItemMappingRecord(raw: Partial<ItemMappingRecord>): ItemMappingRe
     receipt_item_name_normalized: sanitizeText(raw.receipt_item_name_normalized, normalizeKeyPart(receiptItemName)),
     item_name: itemName,
     item_name_normalized: sanitizeText(raw.item_name_normalized, normalizeItemName(itemName)),
-    amount: toNumberOrNull(raw.amount ?? legacyRaw.corrected_quantum_of_unit),
+    amount: toMeasureNumberOrDefault(raw.amount ?? legacyRaw.corrected_quantum_of_unit),
     unit: sanitizeText(raw.unit ?? legacyRaw.corrected_unit) || null,
     item_type: normalizeCategory(raw.item_type),
     item_category: normalizeCategory(raw.item_category),
@@ -279,7 +284,7 @@ function buildMappingRecordFromItem(
     receipt_item_name_normalized: normalizeKeyPart(receiptItemName),
     item_name: canonicalItemName,
     item_name_normalized: normalizeItemName(canonicalItemName),
-    amount: toNumberOrNull(item.amount),
+    amount: toMeasureNumberOrDefault(item.amount),
     unit: sanitizeText(item.unit) || null,
     item_type: normalizeCategory(item.item_type),
     item_category: normalizeCategory(item.item_category),
@@ -591,6 +596,7 @@ type GetStatsOptions = {
   subjectKind?: StatsSubjectKind | null;
   subjectValue?: string | null;
   dateBucket?: StatsDateBucket;
+  breakdownKind?: StatsBreakdownKind;
 };
 
 type DateParts = {
@@ -610,6 +616,13 @@ type MetricContribution = {
   totalAmountUnit: string;
 };
 
+type BreakdownAccumulator = {
+  key: string;
+  label: string;
+  amount: number;
+  items: ReceiptItemRecord[];
+};
+
 type RankedItem = {
   item_name: string;
   quantity: number;
@@ -621,6 +634,7 @@ type RankedItem = {
 type BucketTooltipRow = StatsResponse["deep_dive"]["series"][number]["tooltip_rows"][number];
 
 const MULTI_UNIT_TOOLTIP = "Current filtering contains multiple units";
+const BREAKDOWN_MIN_PERCENTAGE = 0.03;
 
 function parseDateParts(value: string | null | undefined): ParsedDateValue | null {
   if (!value) {
@@ -774,10 +788,10 @@ function expandBucketKeys(bucketKeys: string[], dateBucket: StatsDateBucket): st
 }
 
 function getMetricContribution(item: ReceiptItemRecord): MetricContribution {
-  const amount = item.amount ?? 1;
-  const quantity = item.quantity ?? 1;
+  const amount = toMeasureNumberOrDefault(item.amount);
+  const quantity = toMeasureNumberOrDefault(item.quantity);
   return {
-    quantity: item.quantity ?? 0,
+    quantity,
     dollars: item.price ?? 0,
     totalAmount: amount * quantity,
     totalAmountUnit: item.unit?.trim() || "Each"
@@ -945,7 +959,6 @@ function buildTopItems(items: ReceiptItemRecord[], metric: StatsMetric): StatsRe
 
       return a.item_name.localeCompare(b.item_name);
     })
-    .slice(0, 5)
     .map((item) => {
       const totalAmountDisplay = buildTotalAmountDisplay(item.unit_totals);
       return {
@@ -957,6 +970,141 @@ function buildTopItems(items: ReceiptItemRecord[], metric: StatsMetric): StatsRe
         has_multiple_units: totalAmountDisplay.hasMultipleUnits
       };
     });
+}
+
+function getBreakdownLabel(item: ReceiptItemRecord, kind: StatsBreakdownKind): string | null {
+  if (kind === "item") {
+    return item.item_name?.trim() || null;
+  }
+
+  if (kind === "type") {
+    return item.item_type?.trim() || null;
+  }
+
+  return item.item_category?.trim() || null;
+}
+
+function buildBreakdownItemRows(
+  items: ReceiptItemRecord[],
+  metric: StatsMetric,
+  sliceTotal: number,
+  overallTotal: number
+): StatsResponse["deep_dive"]["breakdown"]["slices"][number]["detail_rows"] {
+  const totals = new Map<string, BreakdownAccumulator>();
+
+  items.forEach((item) => {
+    const label = item.item_name?.trim();
+    if (!label) {
+      return;
+    }
+
+    const key = normalizeStatsSubjectValue(label);
+    const current = totals.get(key) ?? {
+      key,
+      label,
+      amount: 0,
+      items: []
+    };
+
+    current.amount += getMetricValue(metric, getMetricContribution(item));
+    current.items.push(item);
+    totals.set(key, current);
+  });
+
+  return [...totals.values()]
+    .sort((a, b) => b.amount - a.amount || a.label.localeCompare(b.label))
+    .map((entry) => ({
+      label: entry.label,
+      amount: Number(entry.amount.toFixed(2)),
+      percentage_of_total: overallTotal > 0 ? Number(((entry.amount / overallTotal) * 100).toFixed(2)) : 0,
+      percentage_of_slice: sliceTotal > 0 ? Number(((entry.amount / sliceTotal) * 100).toFixed(2)) : 0
+    }));
+}
+
+function buildBreakdown(
+  items: ReceiptItemRecord[],
+  metric: StatsMetric,
+  kind: StatsBreakdownKind
+): StatsResponse["deep_dive"]["breakdown"] {
+  const totals = new Map<string, BreakdownAccumulator>();
+
+  items.forEach((item) => {
+    const label = getBreakdownLabel(item, kind);
+    if (!label) {
+      return;
+    }
+
+    const key = normalizeStatsSubjectValue(label);
+    if (!key) {
+      return;
+    }
+
+    const current = totals.get(key) ?? {
+      key,
+      label,
+      amount: 0,
+      items: []
+    };
+
+    current.amount += getMetricValue(metric, getMetricContribution(item));
+    current.items.push(item);
+    totals.set(key, current);
+  });
+
+  const totalAmount = [...totals.values()].reduce((sum, entry) => sum + entry.amount, 0);
+  if (totalAmount <= 0) {
+    return {
+      kind,
+      slices: []
+    };
+  }
+
+  const sortedEntries = [...totals.values()].sort((a, b) => b.amount - a.amount || a.label.localeCompare(b.label));
+  const visibleEntries: BreakdownAccumulator[] = [];
+  const otherEntries: BreakdownAccumulator[] = [];
+
+  sortedEntries.forEach((entry) => {
+    if (entry.amount / totalAmount < BREAKDOWN_MIN_PERCENTAGE) {
+      otherEntries.push(entry);
+      return;
+    }
+
+    visibleEntries.push(entry);
+  });
+
+  const slices = visibleEntries.map((entry) => ({
+    key: entry.key,
+    label: entry.label,
+    amount: Number(entry.amount.toFixed(2)),
+    percentage_of_total: Number(((entry.amount / totalAmount) * 100).toFixed(2)),
+    is_others: false,
+    detail_rows:
+      kind === "item" ? [] : buildBreakdownItemRows(entry.items, metric, entry.amount, totalAmount)
+  }));
+
+  if (otherEntries.length > 0) {
+    const othersAmount = otherEntries.reduce((sum, entry) => sum + entry.amount, 0);
+    slices.push({
+      key: "__others__",
+      label: "Others",
+      amount: Number(othersAmount.toFixed(2)),
+      percentage_of_total: Number(((othersAmount / totalAmount) * 100).toFixed(2)),
+      is_others: true,
+      detail_rows: otherEntries
+        .sort((a, b) => b.amount - a.amount || a.label.localeCompare(b.label))
+        .map((entry) => ({
+          label: entry.label,
+          amount: Number(entry.amount.toFixed(2)),
+          percentage_of_total: Number(((entry.amount / totalAmount) * 100).toFixed(2)),
+          percentage_of_slice: othersAmount > 0 ? Number(((entry.amount / othersAmount) * 100).toFixed(2)) : 0
+        }))
+    });
+  }
+
+  return {
+    kind,
+    slices
+  };
 }
 
 function buildSeries(
@@ -1047,6 +1195,7 @@ function isWithinDateRange(dateKey: string, startDate: string | null, endDate: s
 export async function getStats(userId: string, options: GetStatsOptions = {}): Promise<StatsResponse> {
   const metric = options.metric ?? "dollars";
   const dateBucket = options.dateBucket ?? "month";
+  const breakdownKind = options.breakdownKind ?? "item";
   const receipts = await listReceipts(userId);
   const items = await getReceiptItemsForUser(userId);
   const today = new Date();
@@ -1105,6 +1254,7 @@ export async function getStats(userId: string, options: GetStatsOptions = {}): P
       series: buildSeries(filteredItems, metric, dateBucket),
       series_unit_label: seriesUnit.series_unit_label,
       series_unit_tooltip: seriesUnit.series_unit_tooltip,
+      breakdown: buildBreakdown(filteredItems, metric, breakdownKind),
       top_items: buildTopItems(filteredItems, metric)
     }
   };

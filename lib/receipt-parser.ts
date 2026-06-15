@@ -330,8 +330,11 @@ export async function parseReceiptFromUpload(userId: string, dataUrl: string, up
     ...parsed,
     store_name: normalizeKeyPart(parsed.store_name) ? parsed.store_name : "",
     purchase_date: parsed.purchase_date?.trim() || uploadDate,
-    items: parsed.items.map((item) => ({
-      ...applyDefaultEachMeasure(item),
+    items: parsed.items.map((item) => {
+      const normalizedItem = applyDefaultEachMeasure(item);
+
+      return {
+      ...normalizedItem,
       receipt_item_name: item.receipt_item_name.trim() || "UNKNOWN ITEM",
       item_name: toTitleCaseText(item.item_name) ?? (item.receipt_item_name.trim() || "Unknown item"),
       item_type: sanitizeCategory(item.item_type),
@@ -339,14 +342,15 @@ export async function parseReceiptFromUpload(userId: string, dataUrl: string, up
       llm_item_name: toTitleCaseText(item.llm_item_name ?? item.item_name) ?? (item.receipt_item_name.trim() || "Unknown item"),
       llm_item_type: sanitizeCategory(item.llm_item_type ?? item.item_type),
       llm_item_category: sanitizeCategory(item.llm_item_category ?? item.item_category),
-      quantity: item.quantity ?? null,
-      amount: item.amount ?? null,
+      quantity: normalizedItem.quantity ?? null,
+      amount: normalizedItem.amount ?? null,
       price: item.price ?? null,
       price_per_unit: item.price_per_unit ?? null,
       is_per_pound: item.is_per_pound ?? false,
       prefill_source: item.prefill_source ?? "claude",
       has_mapping_mismatch: false
-    }))
+    };
+    })
   };
 
   return applyBackfill(userId, normalized);

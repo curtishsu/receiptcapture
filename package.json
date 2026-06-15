@@ -11,6 +11,8 @@
     "migrate:firestore": "node --env-file=.env.local scripts/migrate-mock-db-to-firestore.mjs",
     "backfill:legacy-schema": "node --env-file=.env.local scripts/backfill-legacy-receipt-schema.mjs",
     "backfill:legacy-schema:write": "node --env-file=.env.local scripts/backfill-legacy-receipt-schema.mjs --write",
+    "backfill:null-item-measures": "node --env-file=.env.local scripts/backfill-null-item-measures.mjs",
+    "backfill:null-item-measures:write": "node --env-file=.env.local scripts/backfill-null-item-measures.mjs --write",
     "repair:item-measures": "node --env-file=.env.local scripts/repair-item-measures.mjs",
     "repair:item-measures:write": "node --env-file=.env.local scripts/repair-item-measures.mjs --write",
     "repair:item-measures:llm": "node --env-file=.env.local scripts/repair-item-measures.mjs --use-llm",

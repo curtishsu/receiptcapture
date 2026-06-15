@@ -168,6 +168,44 @@ function displayNumberValue(value: number | null | undefined): string {
   return typeof value === "number" && Number.isFinite(value) ? value.toString() : "-";
 }
 
+function formatMeasureValue(item: Pick<ReceiptItemRecord, "amount" | "unit" | "quantity" | "price_per_unit">): string {
+  const amount = typeof item.amount === "number" && Number.isFinite(item.amount) ? item.amount.toString() : null;
+  const unit = item.unit?.trim() || null;
+  const quantity = typeof item.quantity === "number" && Number.isFinite(item.quantity) ? item.quantity.toString() : null;
+  const pricePerUnit =
+    typeof item.price_per_unit === "number" && Number.isFinite(item.price_per_unit) ? `$${item.price_per_unit.toFixed(2)}/${unit ?? "unit"}` : null;
+
+  if (quantity && amount && unit) {
+    if (quantity === "1") {
+      return pricePerUnit ? `${amount} ${unit} @ ${pricePerUnit}` : `${amount} ${unit}`;
+    }
+
+    return pricePerUnit ? `${quantity} x ${amount} ${unit} @ ${pricePerUnit}` : `${quantity} x ${amount} ${unit}`;
+  }
+
+  if (amount && unit) {
+    return pricePerUnit ? `${amount} ${unit} @ ${pricePerUnit}` : `${amount} ${unit}`;
+  }
+
+  if (quantity && unit) {
+    return `${quantity} ${unit}`;
+  }
+
+  if (quantity) {
+    return `Qty ${quantity}`;
+  }
+
+  if (amount) {
+    return amount;
+  }
+
+  if (unit) {
+    return unit;
+  }
+
+  return "-";
+}
+
 export function ReceiptDetailEditor({
   initialReceipt,
   initialItems
@@ -453,26 +491,11 @@ export function ReceiptDetailEditor({
       <div className="app-frame">
         <div className="app-card">
           <header className="hero">
-            <div className="stack">
-              <Link href="/?tab=history">Back</Link>
-              <div className="history-header">
-                <div>
-                  {isEditing ? (
-                    <>
-                      <h1>Edit receipt</h1>
-                      <p className="muted">Receipt ID: {receipt.receipt_id}</p>
-                    </>
-                  ) : (
-                    <h1>{receipt.store_name}</h1>
-                  )}
-                  {!isEditing ? (
-                    <p>
-                      {receipt.purchase_date || "No date"} • {formatCurrency(savedAdjustedTotal)}
-                      {formatTaxSuffix(receipt.receipt_tax)} • {receipt.item_count} items
-                      {savedExcludedTotal > 0 ? ` • excl. ${formatCurrency(savedExcludedTotal, "$0.00")}` : ""}
-                    </p>
-                  ) : null}
-                </div>
+            <div className="receipt-detail-header">
+              <div className="receipt-detail-header-top">
+                <Link aria-label="Back to receipt history" href="/?tab=history">
+                  ←
+                </Link>
                 {!isEditing ? (
                   <div className="action-icons">
                     <button
@@ -496,6 +519,23 @@ export function ReceiptDetailEditor({
                     </button>
                   </div>
                 ) : null}
+              </div>
+              <div className="receipt-detail-header-body">
+                {isEditing ? (
+                  <>
+                    <h1>Edit receipt</h1>
+                    <p className="muted">Receipt ID: {receipt.receipt_id}</p>
+                  </>
+                ) : (
+                  <>
+                    <h1>{receipt.store_name}</h1>
+                    <p>
+                      {receipt.purchase_date || "No date"} • {formatCurrency(savedAdjustedTotal)}
+                      {formatTaxSuffix(receipt.receipt_tax)} • {receipt.item_count} items
+                      {savedExcludedTotal > 0 ? ` • excl. ${formatCurrency(savedExcludedTotal, "$0.00")}` : ""}
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           </header>
@@ -559,14 +599,23 @@ export function ReceiptDetailEditor({
                 <h2 className="section-title">Saved items</h2>
               </div>
               <div className="item-table-shell">
-                <div className="table item-table">
-                  <div className="table-head table-head-item-editor">
+                  <div className="table item-table">
+                  <div className={`table-head ${isEditing ? "table-head-item-editor" : "table-head-item-saved"}`}>
                     <span>Item Name</span>
-                    <span>Amount</span>
-                    <span>Unit</span>
-                    <span>Quantity</span>
-                    <span>Price</span>
-                    {isEditing ? <span className="table-head-spacer" aria-hidden="true" /> : null}
+                    {isEditing ? (
+                      <>
+                        <span>Amount</span>
+                        <span>Unit</span>
+                        <span>Quantity</span>
+                        <span>Price</span>
+                        <span className="table-head-spacer" aria-hidden="true" />
+                      </>
+                    ) : (
+                      <>
+                        <span>Measure</span>
+                        <span>Price</span>
+                      </>
+                    )}
                   </div>
                   {isEditing
                     ? draftItems.map((item, index) => (
@@ -664,8 +713,8 @@ export function ReceiptDetailEditor({
                       ))
                     : items.map((item) => (
                         <div className="table-row table-row-item-saved" key={item.id}>
-                          <div className="item-name-cell">
-                            <div className="row gap-sm">
+                          <div className="item-name-cell item-name-cell-saved">
+                            <div className="row gap-sm item-name-row">
                               <strong>{displayTextValue(item.item_name)}</strong>
                               {item.has_mapping_mismatch ? (
                                 <button className="link-button" onClick={() => setSuggestionItem(item)} type="button" title="Review suggested metadata">
@@ -676,10 +725,8 @@ export function ReceiptDetailEditor({
                             </div>
                             <span className="item-name-secondary">({displayTextValue(item.receipt_item_name)})</span>
                           </div>
-                          <span>{displayNumberValue(item.amount)}</span>
-                          <span>{displayTextValue(item.unit)}</span>
-                          <span>{displayNumberValue(item.quantity)}</span>
-                          <span>{formatCurrency(item.price, "-")}</span>
+                          <span className="item-price-cell">{formatCurrency(item.price, "-")}</span>
+                          <span className="item-measure-cell">{formatMeasureValue(item)}</span>
                         </div>
                       ))}
                 </div>

@@ -155,6 +155,8 @@ export type StatsSubjectKind = "item" | "type" | "category";
 
 export type StatsDateBucket = "day" | "week" | "month" | "year";
 
+export type StatsBreakdownKind = "item" | "type" | "category";
+
 export type StatsSubjectOption = {
   label: string;
   value: string;
@@ -174,6 +176,7 @@ export type StatsQuery = {
   subjectKind?: StatsSubjectKind | null;
   subjectValue?: string | null;
   dateBucket?: StatsDateBucket;
+  breakdownKind?: StatsBreakdownKind;
 };
 
 export type StatsSeriesPoint = {
@@ -200,6 +203,27 @@ export type StatsTopItemRow = {
   has_multiple_units: boolean;
 };
 
+export type StatsBreakdownSliceDetailRow = {
+  label: string;
+  amount: number;
+  percentage_of_total: number;
+  percentage_of_slice: number;
+};
+
+export type StatsBreakdownSlice = {
+  key: string;
+  label: string;
+  amount: number;
+  percentage_of_total: number;
+  is_others: boolean;
+  detail_rows: StatsBreakdownSliceDetailRow[];
+};
+
+export type StatsBreakdown = {
+  kind: StatsBreakdownKind;
+  slices: StatsBreakdownSlice[];
+};
+
 export type StatsDeepDive = {
   selected_subject: StatsSelectedSubject;
   metric: StatsMetric;
@@ -207,6 +231,7 @@ export type StatsDeepDive = {
   series: StatsSeriesPoint[];
   series_unit_label: string | null;
   series_unit_tooltip: string | null;
+  breakdown: StatsBreakdown;
   top_items: StatsTopItemRow[];
 };
 

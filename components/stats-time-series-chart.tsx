@@ -20,15 +20,14 @@ type PlottedBar = StatsSeriesPoint & {
   index: number;
 };
 
-const SVG_HEIGHT = 260;
-const PADDING = { top: 20, right: 18, bottom: 34, left: 18 };
+const SVG_HEIGHT = 248;
+const PADDING = { top: 12, right: 14, bottom: 42, left: 14 };
 const HIT_AREA_X_PADDING = 28;
 const HIT_AREA_Y_PADDING = 18;
 const TOOLTIP_VIEWPORT_PADDING = 14;
-const MOBILE_TOOLTIP_VIEWPORT_PADDING = 20;
-const MOBILE_TOOLTIP_MAX_WIDTH = 360;
 const TOOLTIP_ANCHOR_GAP = 12;
 const TOOLTIP_ARROW_HALF_WIDTH = 8;
+const TOOLTIP_SIDE_GAP = 12;
 
 function formatMetricValue(metric: StatsMetric, value: number): string {
   if (metric === "dollars") {
@@ -162,11 +161,18 @@ export function StatsTimeSeriesChart({
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent): void {
-      if (!tooltipRef.current?.contains(event.target as Node)) {
-        setActiveBucketKey(null);
-        setExpandedBucketKey(null);
-        setIsTooltipPinned(false);
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(".stats-chart-tooltip") ||
+        target?.closest(".stats-chart-point-hit") ||
+        target?.closest(".stats-bucket-select")
+      ) {
+        return;
       }
+
+      setActiveBucketKey(null);
+      setExpandedBucketKey(null);
+      setIsTooltipPinned(false);
     }
 
     document.addEventListener("pointerdown", handlePointerDown);
@@ -207,7 +213,7 @@ export function StatsTimeSeriesChart({
     );
   }
 
-  const chartWidth = Math.max(width, 280);
+  const chartWidth = Math.max(width, 1);
   const innerWidth = Math.max(chartWidth - PADDING.left - PADDING.right, 1);
   const innerHeight = SVG_HEIGHT - PADDING.top - PADDING.bottom;
   const maxValue = Math.max(...points.map((point) => point.value), 1);
@@ -228,49 +234,71 @@ export function StatsTimeSeriesChart({
   const isExpanded = activePoint ? expandedBucketKey === activePoint.bucket_key : false;
   const visibleTooltipRows = activePoint ? (isExpanded ? activePoint.tooltip_rows : activePoint.tooltip_rows.slice(0, 5)) : [];
   const hasMoreRows = activePoint ? activePoint.tooltip_rows.length > 5 : false;
-  const tooltipAnchorX = activePoint ? activePoint.x + activePoint.width / 2 : 0;
-  const tooltipAnchorY = activePoint ? Math.min(Math.max(activePoint.y, 18), zeroY - 18) : Math.min(Math.max(PADDING.top, 18), zeroY - 18);
-  const viewportWidth = typeof window === "undefined" ? chartWidth : window.innerWidth;
-  const isMobileViewport = viewportWidth <= 640;
-  const tooltipViewportPadding = isMobileViewport ? MOBILE_TOOLTIP_VIEWPORT_PADDING : TOOLTIP_VIEWPORT_PADDING;
-  const mobileTooltipWidth = Math.min(MOBILE_TOOLTIP_MAX_WIDTH, Math.max(280, chartWidth - tooltipViewportPadding * 2));
-  const effectiveTooltipWidth = isMobileViewport ? mobileTooltipWidth : tooltipWidth;
-  const minTooltipLeft = tooltipViewportPadding;
-  const maxTooltipLeft = Math.max(tooltipViewportPadding, chartWidth - tooltipViewportPadding - effectiveTooltipWidth);
-  const preferredCenteredLeft = tooltipAnchorX - effectiveTooltipWidth / 2;
+  const containerHeight = containerRef.current?.getBoundingClientRect().height ?? Math.max(SVG_HEIGHT + 120, 420);
+  const shellTop = shellRef.current?.offsetTop ?? 0;
+  const activeAnchor = activePoint
+    ? {
+        x: activePoint.x + activePoint.width / 2,
+        y: Math.min(Math.max(activePoint.y, 18), zeroY - 18)
+      }
+    : { x: chartWidth / 2, y: Math.min(Math.max(PADDING.top, 18), zeroY - 18) };
+  const availableTooltipWidth = Math.max(180, width - TOOLTIP_VIEWPORT_PADDING * 2);
+  const effectiveTooltipWidth = Math.min(tooltipWidth, availableTooltipWidth);
+  const anchorX = activeAnchor.x;
+  const anchorY = shellTop + activeAnchor.y;
+  const cardRect = containerRef.current?.getBoundingClientRect() ?? null;
+  const contentRect = containerRef.current?.closest(".content")?.getBoundingClientRect() ?? null;
+  const contentBoundLeft = contentRect && cardRect ? contentRect.left - cardRect.left : TOOLTIP_VIEWPORT_PADDING;
+  const contentBoundRight = contentRect && cardRect ? contentRect.right - cardRect.left : width - TOOLTIP_VIEWPORT_PADDING;
+  const contentBoundTop = contentRect && cardRect ? contentRect.top - cardRect.top : TOOLTIP_VIEWPORT_PADDING;
+  const contentBoundBottom = contentRect && cardRect ? contentRect.bottom - cardRect.top : containerHeight - TOOLTIP_VIEWPORT_PADDING;
+  const minTooltipLeft = Math.max(TOOLTIP_VIEWPORT_PADDING, contentBoundLeft + TOOLTIP_VIEWPORT_PADDING);
+  const maxTooltipLeft = Math.max(
+    minTooltipLeft,
+    Math.min(width - TOOLTIP_VIEWPORT_PADDING - effectiveTooltipWidth, contentBoundRight - TOOLTIP_VIEWPORT_PADDING - effectiveTooltipWidth)
+  );
+  const preferredCenteredLeft = anchorX - effectiveTooltipWidth / 2;
+  const centeredFits = preferredCenteredLeft >= minTooltipLeft && preferredCenteredLeft <= maxTooltipLeft;
+  const rightAlignedLeft = anchorX + TOOLTIP_SIDE_GAP;
+  const rightFits = rightAlignedLeft <= maxTooltipLeft;
+  const leftAlignedLeft = anchorX - effectiveTooltipWidth - TOOLTIP_SIDE_GAP;
+  const leftFits = leftAlignedLeft >= minTooltipLeft;
+  const preferredTooltipLeft = centeredFits
+    ? preferredCenteredLeft
+    : rightFits
+      ? rightAlignedLeft
+      : leftFits
+        ? leftAlignedLeft
+        : preferredCenteredLeft;
   const tooltipLeft = activePoint
-    ? Math.min(Math.max(preferredCenteredLeft, minTooltipLeft), maxTooltipLeft)
-    : tooltipViewportPadding;
-  const minTooltipTop = tooltipViewportPadding;
-  const shellHeight = shellRef.current?.getBoundingClientRect().height ?? SVG_HEIGHT;
-  const maxTooltipTop = Math.max(tooltipViewportPadding, shellHeight - tooltipViewportPadding - tooltipHeight);
-  const preferredTooltipTop = tooltipAnchorY - tooltipHeight - TOOLTIP_ANCHOR_GAP;
-  const fallbackTooltipTop = tooltipAnchorY + TOOLTIP_ANCHOR_GAP;
+    ? Math.min(Math.max(preferredTooltipLeft, minTooltipLeft), maxTooltipLeft)
+    : TOOLTIP_VIEWPORT_PADDING;
+  const minTooltipTop = Math.max(TOOLTIP_VIEWPORT_PADDING, contentBoundTop + TOOLTIP_VIEWPORT_PADDING);
+  const maxTooltipTop = Math.max(
+    minTooltipTop,
+    Math.min(containerHeight - TOOLTIP_VIEWPORT_PADDING - tooltipHeight, contentBoundBottom - TOOLTIP_VIEWPORT_PADDING - tooltipHeight)
+  );
+  const preferredTooltipTop = anchorY - tooltipHeight - TOOLTIP_ANCHOR_GAP;
+  const fallbackTooltipTop = anchorY + TOOLTIP_ANCHOR_GAP;
   const tooltipPlacement = preferredTooltipTop >= minTooltipTop || fallbackTooltipTop > maxTooltipTop ? "above" : "below";
   const tooltipTop = activePoint
     ? Math.min(Math.max(tooltipPlacement === "above" ? preferredTooltipTop : fallbackTooltipTop, minTooltipTop), maxTooltipTop)
-    : tooltipViewportPadding;
+    : TOOLTIP_VIEWPORT_PADDING;
   const tooltipArrowLeft = activePoint
     ? Math.min(
-        Math.max(tooltipAnchorX - tooltipLeft, TOOLTIP_ARROW_HALF_WIDTH + 10),
+        Math.max(anchorX - tooltipLeft, TOOLTIP_ARROW_HALF_WIDTH + 10),
         effectiveTooltipWidth - TOOLTIP_ARROW_HALF_WIDTH - 10
       )
     : effectiveTooltipWidth / 2;
   const tooltipStyle = {
     left: `${tooltipLeft}px`,
-      top: `${tooltipTop}px`,
-      width: isMobileViewport ? `${mobileTooltipWidth}px` : undefined,
-      ["--tooltip-arrow-left" as any]: `${tooltipArrowLeft}px`
+    top: `${tooltipTop}px`,
+    maxWidth: `${availableTooltipWidth}px`,
+    maxHeight: `${Math.max(140, containerHeight - TOOLTIP_VIEWPORT_PADDING * 2)}px`,
+    ["--tooltip-arrow-left" as any]: `${tooltipArrowLeft}px`
   } as CSSProperties;
 
   function handleBarClick(point: PlottedBar): void {
-    if (activeBucketKey === point.bucket_key && isTooltipPinned) {
-      setActiveBucketKey(null);
-      setExpandedBucketKey(null);
-      setIsTooltipPinned(false);
-      return;
-    }
-
     setActiveBucketKey(point.bucket_key);
     setExpandedBucketKey(null);
     setIsTooltipPinned(true);
@@ -317,12 +345,6 @@ export function StatsTimeSeriesChart({
                   event.stopPropagation();
                   handleBarClick(point);
                 }}
-                onMouseEnter={() => {
-                  if (!isTooltipPinned) {
-                    setActiveBucketKey(point.bucket_key);
-                    setExpandedBucketKey(null);
-                  }
-                }}
                 rx="8"
                 ry="8"
                 width={point.width + HIT_AREA_X_PADDING * 2}
@@ -335,46 +357,50 @@ export function StatsTimeSeriesChart({
                 </text>
               ) : null}
               {visibleTickKeys.has(point.bucket_key) ? (
-                <text className="stats-chart-tick" textAnchor="middle" x={point.x + point.width / 2} y={SVG_HEIGHT - 12}>
+                <text
+                  className="stats-chart-tick"
+                  textAnchor="end"
+                  transform={`translate(${point.x + point.width / 2} ${SVG_HEIGHT - 10}) rotate(-45)`}
+                >
                   {point.bucket_label}
                 </text>
               ) : null}
             </g>
           ))}
         </svg>
-        {activePoint ? (
-          <div
-            className={`stats-chart-tooltip ${tooltipPlacement === "below" ? "below" : "above"}`}
-            onClick={() => setIsTooltipPinned(true)}
-            ref={tooltipRef}
-            style={tooltipStyle}
-          >
-            <span aria-hidden="true" className="stats-chart-tooltip-arrow" />
-            <strong>{`${activePoint.bucket_label} (${formatMetricValue(metric, activePoint.value)})`}</strong>
-            <div className={`stats-chart-tooltip-rows ${isExpanded ? "expanded" : ""}`}>
-              {visibleTooltipRows.map((row) => (
-                <div className="stats-chart-tooltip-row" key={row.item_name}>
-                  <span className="stats-chart-tooltip-item">
-                    <span className="stats-chart-tooltip-item-name">{row.item_name}</span>
-                    <span className="stats-chart-tooltip-item-amount">{row.total_amount_display}</span>
-                  </span>
-                  <span className="stats-chart-tooltip-value">{formatMetricValue("dollars", row.dollars)}</span>
-                </div>
-              ))}
-            </div>
-            {hasMoreRows ? (
-              <button
-                className="stats-chart-tooltip-toggle"
-                onClick={() => setExpandedBucketKey(isExpanded ? null : activePoint.bucket_key)}
-                type="button"
-              >
-                {isExpanded ? "Show less" : `See more (${activePoint.tooltip_rows.length - 5})`}
-              </button>
-            ) : null}
-            {activePoint.has_multiple_units ? <em className="stats-chart-tooltip-note">Multiple units</em> : null}
-          </div>
-        ) : null}
       </div>
+      {activePoint ? (
+        <div
+          className={`stats-chart-tooltip ${tooltipPlacement === "below" ? "below" : "above"}`}
+          onClick={() => setIsTooltipPinned(true)}
+          ref={tooltipRef}
+          style={tooltipStyle}
+        >
+          <span aria-hidden="true" className="stats-chart-tooltip-arrow" />
+          <strong>{`${activePoint.bucket_label} (${formatMetricValue(metric, activePoint.value)})`}</strong>
+          <div className={`stats-chart-tooltip-rows ${isExpanded ? "expanded" : ""}`}>
+            {visibleTooltipRows.map((row) => (
+              <div className="stats-chart-tooltip-row" key={row.item_name}>
+                <span className="stats-chart-tooltip-item">
+                  <span className="stats-chart-tooltip-item-name">{row.item_name}</span>
+                  <span className="stats-chart-tooltip-item-amount">{row.total_amount_display}</span>
+                </span>
+                <span className="stats-chart-tooltip-value">{formatMetricValue("dollars", row.dollars)}</span>
+              </div>
+            ))}
+          </div>
+          {hasMoreRows ? (
+            <button
+              className="stats-chart-tooltip-toggle"
+              onClick={() => setExpandedBucketKey(isExpanded ? null : activePoint.bucket_key)}
+              type="button"
+            >
+              {isExpanded ? "Show less" : `See more (${activePoint.tooltip_rows.length - 5})`}
+            </button>
+          ) : null}
+          {activePoint.has_multiple_units ? <em className="stats-chart-tooltip-note">Multiple units</em> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

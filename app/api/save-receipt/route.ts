@@ -4,15 +4,19 @@ import { saveReceipt } from "@/lib/firestore-db";
 import { safeNumber, toTitleCaseText } from "@/lib/normalize";
 import type { ReceiptItemInput, SaveReceiptPayload } from "@/lib/types";
 
+function sanitizeMeasureNumber(value: number | null | undefined): number {
+  return safeNumber(value) ?? 1;
+}
+
 function sanitizeItems(items: ReceiptItemInput[]): ReceiptItemInput[] {
   return items
     .filter((item) => item.receipt_item_name?.trim() || item.item_name?.trim())
     .map((item) => ({
       receipt_item_name: item.receipt_item_name?.trim() || item.item_name?.trim() || "UNKNOWN ITEM",
       item_name: toTitleCaseText(item.item_name) ?? (item.receipt_item_name?.trim() || "Unknown item"),
-      amount: safeNumber(item.amount),
+      amount: sanitizeMeasureNumber(item.amount),
       unit: item.unit?.trim() || null,
-      quantity: safeNumber(item.quantity),
+      quantity: sanitizeMeasureNumber(item.quantity),
       price: safeNumber(item.price),
       price_per_unit: safeNumber(item.price_per_unit),
       is_excluded: Boolean(item.is_excluded),

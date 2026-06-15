@@ -10,26 +10,35 @@ import {
   type ReactElement
 } from "react";
 import Link from "next/link";
-import {
-  signInWithEmailAndPassword,
-  signOut as firebaseSignOut
-} from "firebase/auth";
+import dynamic from "next/dynamic";
 import { BottomTabBar, type TabKey } from "@/components/bottom-tab-bar";
-import { StatsTimeSeriesChart } from "@/components/stats-time-series-chart";
-import { getFirebaseClientAuth } from "@/lib/firebase-client";
-import { isHeicLikeUpload } from "@/lib/image-format";
 import type {
   ItemMappingRecord,
   MappingInput,
   ParsedReceipt,
   ReceiptItemInput,
   ReceiptRecord,
+  StatsBreakdownKind,
   StatsDateBucket,
   StatsMetric,
   StatsSubjectKind,
   StatsSubjectOption,
   StatsResponse
 } from "@/lib/types";
+
+const StatsTimeSeriesChart = dynamic(
+  () => import("@/components/stats-time-series-chart").then((module) => module.StatsTimeSeriesChart),
+  {
+    loading: () => <div className="stats-chart-card empty-state">Loading chart...</div>
+  }
+);
+
+const StatsBreakdownChart = dynamic(
+  () => import("@/components/stats-breakdown-chart").then((module) => module.StatsBreakdownChart),
+  {
+    loading: () => <div className="stats-chart-card empty-state">Loading chart...</div>
+  }
+);
 
 type SessionUser = {
   id: string;
@@ -60,6 +69,10 @@ const EMPTY_STATS: StatsResponse = {
     series: [],
     series_unit_label: null,
     series_unit_tooltip: null,
+    breakdown: {
+      kind: "item",
+      slices: []
+    },
     top_items: []
   }
 };
@@ -72,14 +85,6 @@ function shiftIsoDate(daysBack: number): string {
   const date = new Date();
   date.setDate(date.getDate() - daysBack);
   return date.toISOString().slice(0, 10);
-}
-
-function replaceFileExtension(fileName: string, nextExtension: string): string {
-  return /\.[^.]+$/.test(fileName) ? fileName.replace(/\.[^.]+$/, nextExtension) : `${fileName}${nextExtension}`;
-}
-
-async function readFileSignature(file: File): Promise<Uint8Array> {
-  return new Uint8Array(await file.slice(0, 64).arrayBuffer());
 }
 
 function readFileAsDataUrl(file: Blob): Promise<string> {
@@ -117,140 +122,6 @@ function getUploadErrorMessage(error: unknown): string {
   }
 
   return "Parse failed.";
-}
-
-async function normalizeUploadImage(file: File): Promise<{ file: File; wasConverted: boolean; fallbackToServer: boolean }> {
-  const signature = await readFileSignature(file);
-  const shouldNormalize = isHeicLikeUpload({
-    fileName: file.name,
-    mimeType: file.type,
-    bytes: signature
-  });
-
-  if (!shouldNormalize) {
-    return { file, wasConverted: false, fallbackToServer: false };
-  }
-
-  try {
-    return {
-      file: await convertHeicWithBrowserDecoder(file),
-      wasConverted: true,
-      fallbackToServer: false
-    };
-  } catch (nativeError) {
-    try {
-      return {
-        file: await convertHeicWithLibrary(file),
-        wasConverted: true,
-        fallbackToServer: false
-      };
-    } catch (libraryError) {
-      console.warn("Client-side HEIC conversion failed; falling back to server normalization.", {
-        nativeError,
-        libraryError
-      });
-      return {
-        file,
-        wasConverted: false,
-        fallbackToServer: true
-      };
-    }
-  }
-}
-
-function blobToJpegFile(blob: Blob, originalFileName: string): File {
-  return new File([blob], replaceFileExtension(originalFileName, ".jpg"), {
-    type: "image/jpeg",
-    lastModified: Date.now()
-  });
-}
-
-function drawImageToJpeg(image: CanvasImageSource, width: number, height: number): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-
-    const context = canvas.getContext("2d");
-    if (!context) {
-      reject(new Error("Canvas is unavailable for image conversion."));
-      return;
-    }
-
-    context.drawImage(image, 0, 0, width, height);
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          reject(new Error("Canvas could not export the converted image."));
-          return;
-        }
-
-        resolve(blob);
-      },
-      "image/jpeg",
-      0.92
-    );
-  });
-}
-
-function loadImageElement(blobUrl: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("The browser could not decode this HEIC image."));
-    image.src = blobUrl;
-  });
-}
-
-async function convertHeicWithBrowserDecoder(file: File): Promise<File> {
-  const blobUrl = URL.createObjectURL(file);
-
-  try {
-    if ("createImageBitmap" in window) {
-      try {
-        const bitmap = await createImageBitmap(file);
-
-        try {
-          const jpegBlob = await drawImageToJpeg(bitmap, bitmap.width, bitmap.height);
-          return blobToJpegFile(jpegBlob, file.name);
-        } finally {
-          bitmap.close();
-        }
-      } catch {
-        // Fall through to the HTMLImageElement path below.
-      }
-    }
-
-    const image = await loadImageElement(blobUrl);
-    const width = image.naturalWidth || image.width;
-    const height = image.naturalHeight || image.height;
-
-    if (!width || !height) {
-      throw new Error("The browser decoded the image but reported invalid dimensions.");
-    }
-
-    const jpegBlob = await drawImageToJpeg(image, width, height);
-    return blobToJpegFile(jpegBlob, file.name);
-  } finally {
-    URL.revokeObjectURL(blobUrl);
-  }
-}
-
-async function convertHeicWithLibrary(file: File): Promise<File> {
-  const { default: heic2any } = await import("heic2any");
-  const result = await heic2any({
-    blob: file,
-    toType: "image/jpeg",
-    quality: 0.92
-  });
-  const convertedBlob = Array.isArray(result) ? result[0] : result;
-
-  if (!(convertedBlob instanceof Blob)) {
-    throw new Error("HEIC conversion produced an invalid image.");
-  }
-
-  return blobToJpegFile(convertedBlob, file.name);
 }
 
 function formatStatsValue(metric: StatsMetric, value: number): string {
@@ -512,6 +383,45 @@ function mappingToInput(mapping: ItemMappingRecord): MappingInput {
   };
 }
 
+type GroupedMappingItem = {
+  index: number;
+  mapping: MappingInput;
+};
+
+type GroupedMappings = {
+  storeName: string;
+  items: GroupedMappingItem[];
+};
+
+function compareText(left: string | null | undefined, right: string | null | undefined): number {
+  return (left ?? "").localeCompare(right ?? "", undefined, { sensitivity: "base" });
+}
+
+function groupMappingsByStore(mappings: MappingInput[]): GroupedMappings[] {
+  const grouped = new Map<string, GroupedMappingItem[]>();
+
+  mappings.forEach((mapping, index) => {
+    const storeName = mapping.store_name.trim() || "Unknown store";
+    const current = grouped.get(storeName) ?? [];
+    current.push({ index, mapping });
+    grouped.set(storeName, current);
+  });
+
+  return [...grouped.entries()]
+    .sort(([left], [right]) => compareText(left, right))
+    .map(([storeName, items]) => ({
+      storeName,
+      items: [...items].sort((left, right) => {
+        const receiptNameResult = compareText(left.mapping.receipt_item_name, right.mapping.receipt_item_name);
+        if (receiptNameResult !== 0) {
+          return receiptNameResult;
+        }
+
+        return compareText(left.mapping.item_name, right.mapping.item_name);
+      })
+    }));
+}
+
 const MAPPING_FIELD_LABELS = {
   store_name: "Store",
   receipt_item_name: "Receipt item",
@@ -538,17 +448,20 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   const [deletedMappingIds, setDeletedMappingIds] = useState<string[]>([]);
   const [isMappingEditing, setIsMappingEditing] = useState(false);
   const [mappingSaveMessage, setMappingSaveMessage] = useState<string | null>(null);
+  const [collapsedMappingStores, setCollapsedMappingStores] = useState<Record<string, boolean>>({});
   const [knownUnits, setKnownUnits] = useState<string[]>([]);
   const [statsMetric, setStatsMetric] = useState<StatsMetric>("dollars");
   const [statsSubjectKind, setStatsSubjectKind] = useState<StatsSubjectKind | null>(null);
   const [statsSubjectValue, setStatsSubjectValue] = useState("");
   const [statsSubjectSearch, setStatsSubjectSearch] = useState("");
   const [statsDateBucket, setStatsDateBucket] = useState<StatsDateBucket>("month");
+  const [statsBreakdownKind, setStatsBreakdownKind] = useState<StatsBreakdownKind>("item");
   const [isStatsSubjectMenuOpen, setIsStatsSubjectMenuOpen] = useState(false);
   const [isStatsFilterMenuOpen, setIsStatsFilterMenuOpen] = useState(false);
   const [statsRangePreset, setStatsRangePreset] = useState<StatsRangePreset>("all_time");
   const [statsStartDate, setStatsStartDate] = useState("");
   const [statsEndDate, setStatsEndDate] = useState("");
+  const [visibleTopItemsCount, setVisibleTopItemsCount] = useState(5);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -558,6 +471,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   const statsFilterMenuRef = useRef<HTMLDivElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const libraryInputRef = useRef<HTMLInputElement | null>(null);
+  const statsRequestIdRef = useRef(0);
 
   async function loadHistory(): Promise<void> {
     if (!sessionUser) {
@@ -578,6 +492,8 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
       return;
     }
 
+    const requestId = statsRequestIdRef.current + 1;
+    statsRequestIdRef.current = requestId;
     const { startDate, endDate } = getStatsDateRange(statsRangePreset, statsStartDate, statsEndDate);
     const searchParams = new URLSearchParams({ metric: statsMetric });
     if (startDate) {
@@ -587,6 +503,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
       searchParams.set("endDate", endDate);
     }
     searchParams.set("dateBucket", statsDateBucket);
+    searchParams.set("breakdownKind", statsBreakdownKind);
     if (statsSubjectKind && statsSubjectValue) {
       searchParams.set("subjectKind", statsSubjectKind);
       searchParams.set("subjectValue", statsSubjectValue);
@@ -598,6 +515,10 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
     }
 
     const data = (await response.json()) as StatsResponse;
+    if (statsRequestIdRef.current !== requestId) {
+      return;
+    }
+
     setStats(data);
   }
 
@@ -642,14 +563,14 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   }, []);
 
   useEffect(() => {
-    if (!sessionUser || activeTab !== "photo" || knownUnits.length > 0) {
+    if (!sessionUser || activeTab !== "photo" || !receipt || knownUnits.length > 0) {
       return;
     }
 
     startTransition(() => {
       void loadKnownUnits();
     });
-  }, [activeTab, knownUnits.length, sessionUser]);
+  }, [activeTab, knownUnits.length, receipt, sessionUser]);
 
   useEffect(() => {
     if (!sessionUser || activeTab !== "stats") {
@@ -659,7 +580,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
     startTransition(() => {
       void loadStats();
     });
-  }, [activeTab, sessionUser, statsMetric, statsSubjectKind, statsSubjectValue, statsDateBucket, statsRangePreset, statsStartDate, statsEndDate]);
+  }, [activeTab, sessionUser, statsMetric, statsSubjectKind, statsSubjectValue, statsDateBucket, statsBreakdownKind, statsRangePreset, statsStartDate, statsEndDate]);
 
   useEffect(() => {
     if (!sessionUser || activeTab !== "history" || history.length > 0) {
@@ -733,6 +654,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
     setIsAuthenticating(true);
 
     try {
+      const { getFirebaseClientAuth, signInWithEmailAndPassword } = await import("@/lib/firebase-client-auth");
       const auth = getFirebaseClientAuth();
       const email = authEmail.trim();
       const credential = await signInWithEmailAndPassword(auth, email, authPassword);
@@ -763,7 +685,8 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
 
   async function handleSignOut(): Promise<void> {
     try {
-      await firebaseSignOut(getFirebaseClientAuth());
+      const { getFirebaseClientAuth, signOut } = await import("@/lib/firebase-client-auth");
+      await signOut(getFirebaseClientAuth());
     } catch {
       // The server session is still cleared below.
     }
@@ -784,6 +707,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
     setStatsSubjectValue("");
     setStatsSubjectSearch("");
     setStatsDateBucket("month");
+    setStatsBreakdownKind("item");
     setIsStatsSubjectMenuOpen(false);
     setStatsRangePreset("all_time");
     setStatsStartDate("");
@@ -802,6 +726,7 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
     try {
       setStatus("Preparing image...");
 
+      const { normalizeUploadImage } = await import("@/lib/client-image-normalization");
       const { file, wasConverted, fallbackToServer } = await normalizeUploadImage(selectedFile);
       const imageDataUrl = await readFileAsDataUrl(file);
       setSelectedFileName(file.name);
@@ -1097,9 +1022,11 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
   }
 
   const visibleMappings = isMappingEditing ? mappingDrafts : mappings.map(mappingToInput);
+  const groupedSavedMappings = groupMappingsByStore(mappings.map(mappingToInput));
   const selectedStatsSubject =
     stats.filters.subject_options.find((option) => option.kind === statsSubjectKind && option.value === statsSubjectValue) ?? null;
   const statsTopItems = stats.deep_dive.top_items;
+  const visibleStatsTopItems = statsTopItems.slice(0, visibleTopItemsCount);
   const receiptExcludedTotal = receipt ? getExcludedTotal(receipt.items) : 0;
   const receiptAdjustedTotal = receipt ? getAdjustedTotal(receipt.receipt_total, receiptExcludedTotal) : null;
   const filteredStatsSubjectOptions = stats.filters.subject_options.filter((option) => {
@@ -1127,6 +1054,17 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
       return next;
     });
   }
+
+  function toggleMappingStore(storeName: string): void {
+    setCollapsedMappingStores((current) => ({
+      ...current,
+      [storeName]: !(current[storeName] ?? false)
+    }));
+  }
+
+  useEffect(() => {
+    setVisibleTopItemsCount(5);
+  }, [statsTopItems]);
 
   return (
     <main className="page-shell">
@@ -1572,16 +1510,35 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                         unitLabel={stats.deep_dive.series_unit_label}
                         unitTooltip={stats.deep_dive.series_unit_tooltip}
                       />
+                      <StatsBreakdownChart
+                        breakdownKind={statsBreakdownKind}
+                        metric={statsMetric}
+                        onBreakdownKindChange={setStatsBreakdownKind}
+                        slices={stats.deep_dive.breakdown.slices}
+                      />
                       <div className="stats-table-header">
                         <h3 className="section-title">Top Items</h3>
                       </div>
                       {statsTopItems.length > 0 ? (
-                        statsTopItems.map((item) => (
-                          <div className="row spread" key={item.item_name}>
-                            <span>{item.item_name}</span>
-                            <span className="pill">{getStatsDisplayLabel(statsMetric, item)}</span>
+                        <>
+                          <div className="stats-top-items-list">
+                            {visibleStatsTopItems.map((item) => (
+                              <div className="stats-top-item-row" key={item.item_name}>
+                                <span className="stats-top-item-name">{item.item_name}</span>
+                                <span className="stats-top-item-value">{getStatsDisplayLabel(statsMetric, item)}</span>
+                              </div>
+                            ))}
                           </div>
-                        ))
+                          {visibleTopItemsCount < statsTopItems.length ? (
+                            <button
+                              className="button ghost stats-top-items-toggle"
+                              onClick={() => setVisibleTopItemsCount((current) => current + 5)}
+                              type="button"
+                            >
+                              Show Next 5
+                            </button>
+                          ) : null}
+                        </>
                       ) : (
                         <div className="empty-state">Save receipts in the selected date range to generate food rankings.</div>
                       )}
@@ -1623,77 +1580,102 @@ export function AppShell({ initialSessionUser, initialTab }: AppShellProps): Rea
                     </div>
                     {visibleMappings.length > 0 ? (
                       <>
-                        <div className="mapping-table-shell">
-                          <div className="table mapping-table">
-                            <div
-                              className={`table-head mapping-table-head ${isMappingEditing ? "table-head-mapping-v2" : "table-head-mapping-v2-saved"}`}
-                            >
-                              <span>Store</span>
-                              <span>Receipt Item Name</span>
-                              <span>Item Name</span>
-                              <span>Type</span>
-                              <span>Category</span>
-                              {isMappingEditing ? <span className="table-head-spacer" aria-hidden="true" /> : null}
-                            </div>
-                            {visibleMappings.map((mapping, index) => (
-                              <div
-                                className={`table-row mapping-table-row ${isMappingEditing ? "table-row-mapping-v2 mapping-table-row-editing" : "table-row-mapping-v2-saved"}`}
-                                key={`${mapping.store_name}-${mapping.receipt_item_name}-${index}`}
-                              >
-                                {isMappingEditing ? (
-                                  <>
-                                    <label className="mapping-cell mapping-cell-edit">
-                                      <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.store_name}</span>
-                                      <input className="field mapping-field" value={mapping.store_name} onChange={(event) => updateMappingDraft(index, "store_name", event.target.value)} />
-                                    </label>
-                                    <label className="mapping-cell mapping-cell-edit">
-                                      <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.receipt_item_name}</span>
-                                      <input className="field mapping-field" value={mapping.receipt_item_name} onChange={(event) => updateMappingDraft(index, "receipt_item_name", event.target.value)} />
-                                    </label>
-                                    <label className="mapping-cell mapping-cell-edit">
-                                      <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.item_name}</span>
-                                      <input className="field mapping-field" value={mapping.item_name} onChange={(event) => updateMappingDraft(index, "item_name", event.target.value)} />
-                                    </label>
-                                    <label className="mapping-cell mapping-cell-edit">
-                                      <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.item_type}</span>
-                                      <input className="field mapping-field" value={mapping.item_type ?? ""} onChange={(event) => updateMappingDraft(index, "item_type", event.target.value)} />
-                                    </label>
-                                    <label className="mapping-cell mapping-cell-edit">
-                                      <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.item_category}</span>
-                                      <input className="field mapping-field" value={mapping.item_category ?? ""} onChange={(event) => updateMappingDraft(index, "item_category", event.target.value)} />
-                                    </label>
-                                    <button className="icon-button small danger" onClick={() => stageDeleteMapping(index)} type="button" aria-label="Delete mapping" title="Delete mapping">
-                                      <span aria-hidden="true">x</span>
-                                    </button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <div className="mapping-cell">
-                                      <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.store_name}</span>
-                                      <span className="mapping-cell-value">{mapping.store_name}</span>
-                                    </div>
-                                    <div className="mapping-cell">
-                                      <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.receipt_item_name}</span>
-                                      <span className="mapping-cell-value mapping-cell-value-secondary">{mapping.receipt_item_name}</span>
-                                    </div>
-                                    <div className="mapping-cell">
-                                      <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.item_name}</span>
-                                      <strong className="mapping-cell-value mapping-cell-value-primary">{mapping.item_name}</strong>
-                                    </div>
-                                    <div className="mapping-cell">
-                                      <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.item_type}</span>
-                                      <span className="mapping-cell-value mapping-cell-value-muted">{toTitleCase(mapping.item_type) ?? "Blank"}</span>
-                                    </div>
-                                    <div className="mapping-cell">
-                                      <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.item_category}</span>
-                                      <span className="mapping-cell-value mapping-cell-value-muted">{mapping.item_category ?? "Blank"}</span>
-                                    </div>
-                                  </>
-                                )}
+                        {isMappingEditing ? (
+                          <div className="mapping-table-shell">
+                            <div className="table mapping-table">
+                              <div className="table-head mapping-table-head table-head-mapping-v2">
+                                <span>Store</span>
+                                <span>Item Name</span>
+                                <span>Receipt Item Name</span>
+                                <span>Type</span>
+                                <span>Category</span>
+                                <span className="table-head-spacer" aria-hidden="true" />
                               </div>
-                            ))}
+                              {visibleMappings.map((mapping, index) => (
+                                <div className="table-row mapping-table-row table-row-mapping-v2 mapping-table-row-editing" key={`${mapping.store_name}-${mapping.receipt_item_name}-${index}`}>
+                                  <label className="mapping-cell mapping-cell-edit">
+                                    <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.store_name}</span>
+                                    <input className="field mapping-field" value={mapping.store_name} onChange={(event) => updateMappingDraft(index, "store_name", event.target.value)} />
+                                  </label>
+                                  <label className="mapping-cell mapping-cell-edit">
+                                    <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.item_name}</span>
+                                    <input className="field mapping-field" value={mapping.item_name} onChange={(event) => updateMappingDraft(index, "item_name", event.target.value)} />
+                                  </label>
+                                  <label className="mapping-cell mapping-cell-edit">
+                                    <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.receipt_item_name}</span>
+                                    <input className="field mapping-field" value={mapping.receipt_item_name} onChange={(event) => updateMappingDraft(index, "receipt_item_name", event.target.value)} />
+                                  </label>
+                                  <label className="mapping-cell mapping-cell-edit">
+                                    <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.item_type}</span>
+                                    <input className="field mapping-field" value={mapping.item_type ?? ""} onChange={(event) => updateMappingDraft(index, "item_type", event.target.value)} />
+                                  </label>
+                                  <label className="mapping-cell mapping-cell-edit">
+                                    <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.item_category}</span>
+                                    <input className="field mapping-field" value={mapping.item_category ?? ""} onChange={(event) => updateMappingDraft(index, "item_category", event.target.value)} />
+                                  </label>
+                                  <button className="icon-button small danger" onClick={() => stageDeleteMapping(index)} type="button" aria-label="Delete mapping" title="Delete mapping">
+                                    <span aria-hidden="true">x</span>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
+                        ) : (
+                          <div className="mapping-store-groups">
+                            {groupedSavedMappings.map((group) => {
+                              const isCollapsed = collapsedMappingStores[group.storeName] ?? false;
+
+                              return (
+                                <section className="mapping-store-group" key={group.storeName}>
+                                  <button
+                                    className="mapping-store-toggle"
+                                    onClick={() => toggleMappingStore(group.storeName)}
+                                    type="button"
+                                    aria-expanded={!isCollapsed}
+                                  >
+                                    <span className="mapping-store-toggle-title">
+                                      <strong>{group.storeName}</strong>
+                                      <span className="mapping-store-toggle-count">{group.items.length} item{group.items.length === 1 ? "" : "s"}</span>
+                                    </span>
+                                    <span className="mapping-store-toggle-icon" aria-hidden="true">{isCollapsed ? "+" : "-"}</span>
+                                  </button>
+                                  {!isCollapsed ? (
+                                    <div className="mapping-table-shell">
+                                      <div className="table mapping-table mapping-table-grouped">
+                                      <div className="table-head mapping-table-head table-head-mapping-grouped">
+                                          <span>Item Name</span>
+                                          <span>Receipt Item Name</span>
+                                          <span>Type</span>
+                                          <span>Category</span>
+                                        </div>
+                                        {group.items.map(({ mapping, index }) => (
+                                          <div className="table-row mapping-table-row table-row-mapping-grouped" key={`${group.storeName}-${mapping.receipt_item_name}-${index}`}>
+                                            <div className="mapping-cell">
+                                              <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.item_name}</span>
+                                              <strong className="mapping-cell-value mapping-cell-value-primary">{mapping.item_name}</strong>
+                                            </div>
+                                            <div className="mapping-cell">
+                                              <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.receipt_item_name}</span>
+                                              <span className="mapping-cell-value mapping-cell-value-secondary">{mapping.receipt_item_name}</span>
+                                            </div>
+                                            <div className="mapping-cell">
+                                              <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.item_type}</span>
+                                              <span className="mapping-cell-value mapping-cell-value-muted">{toTitleCase(mapping.item_type) ?? "Blank"}</span>
+                                            </div>
+                                            <div className="mapping-cell">
+                                              <span className="mapping-cell-label">{MAPPING_FIELD_LABELS.item_category}</span>
+                                              <span className="mapping-cell-value mapping-cell-value-muted">{mapping.item_category ?? "Blank"}</span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </section>
+                              );
+                            })}
+                          </div>
+                        )}
                         {isMappingEditing ? (
                           <div className="row receipt-edit-actions">
                             <button className="button ghost" onClick={cancelMappingEdit} type="button">
