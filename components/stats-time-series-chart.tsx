@@ -20,8 +20,8 @@ type PlottedBar = StatsSeriesPoint & {
   index: number;
 };
 
-const SVG_HEIGHT = 248;
-const PADDING = { top: 12, right: 14, bottom: 42, left: 14 };
+const SVG_HEIGHT = 232;
+const PADDING = { top: 12, right: 14, bottom: 30, left: 14 };
 const HIT_AREA_X_PADDING = 28;
 const HIT_AREA_Y_PADDING = 18;
 const TOOLTIP_VIEWPORT_PADDING = 14;

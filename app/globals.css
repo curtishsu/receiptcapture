@@ -879,11 +879,12 @@ textarea.field:focus {
 }
 
 .stats-bucket-select {
-  width: 84px;
-  min-width: 84px;
+  width: auto;
+  min-width: 112px;
   font-size: 0.94rem;
   padding-top: 0.55rem;
   padding-bottom: 0.55rem;
+  padding-right: 34px;
 }
 
 .stats-breakdown-select {
@@ -1590,8 +1591,8 @@ textarea.field:focus {
   }
 
   .stats-bucket-select {
-    width: 78px;
-    min-width: 78px;
+    width: auto;
+    min-width: 104px;
     font-size: 0.9rem;
   }
 
