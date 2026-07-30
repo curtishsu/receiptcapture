@@ -32,6 +32,8 @@ type ClaudeMessageResponse = {
 
 type ClaudeItemCandidate = NonNullable<ClaudeCandidate["items"]>[number];
 
+const DEFAULT_CLAUDE_MODEL = "claude-sonnet-5";
+
 const CATEGORY_GUIDANCE = [
   "Vegetables",
   "Fruit",
@@ -160,7 +162,7 @@ async function parseWithClaude(dataUrl: string, uploadDate: string): Promise<Par
   }
 
   const [, mimeType, base64] = match;
-  const model = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-20250514";
+  const model = process.env.CLAUDE_MODEL?.trim() || DEFAULT_CLAUDE_MODEL;
   const prompt = [
     "Your job is to parse a grocery receipt and return JSON only.",
     "Return store_name, purchase_date (YYYY-MM-DD or empty string), receipt_total (number or null), receipt_tax (number or null), and items.",
@@ -218,7 +220,14 @@ async function parseWithClaude(dataUrl: string, uploadDate: string): Promise<Par
   const data = (await response.json()) as ClaudeMessageResponse;
   if (!response.ok) {
     const details = data.error?.message?.trim();
-    throw new Error(details ? `Claude parse failed: ${details}` : `Claude parse failed with status ${response.status}`);
+    const hint = response.status === 404
+      ? ` Model '${model}' was not found for this Anthropic account. Set CLAUDE_MODEL to one returned by GET /v1/models if needed.`
+      : "";
+    throw new Error(
+      details
+        ? `Claude parse failed for model '${model}': ${details}.${hint}`.trim()
+        : `Claude parse failed with status ${response.status} for model '${model}'.${hint}`.trim()
+    );
   }
 
   const parsed = JSON.parse(extractClaudeText(data)) as ClaudeCandidate;

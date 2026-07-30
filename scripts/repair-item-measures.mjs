@@ -225,7 +225,7 @@ async function inferWithClaude(receiptItemName) {
       "x-api-key": apiKey
     },
     body: JSON.stringify({
-      model: process.env.CLAUDE_MODEL ?? "claude-sonnet-4-20250514",
+      model: process.env.CLAUDE_MODEL?.trim() || "claude-sonnet-5",
       max_tokens: 256,
       system: "You infer grocery receipt quantity and unit fields. Return valid JSON only.",
       messages: [

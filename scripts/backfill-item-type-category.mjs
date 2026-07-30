@@ -110,7 +110,7 @@ async function inferMetadataForMapping(mapping) {
       "x-api-key": apiKey
     },
     body: JSON.stringify({
-      model: process.env.CLAUDE_MODEL ?? "claude-sonnet-4-20250514",
+      model: process.env.CLAUDE_MODEL?.trim() || "claude-sonnet-5",
       max_tokens: 512,
       system: "You classify grocery receipt items into canonical item taxonomy. Return valid JSON only.",
       messages: [
